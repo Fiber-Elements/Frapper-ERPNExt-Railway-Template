@@ -213,7 +213,7 @@ if [ ! -d "sites/$SITE_ID" ] && [ "${ALLOW_NEW_SITE}" != "1" ]; then
   "db_password": "${DB_PASSWORD}",
   "db_type": "mariadb",
   "db_host": "${DB_HOST}",
-  "db_port": "${DB_PORT}",
+  "db_port": ${DB_PORT:-3306},
   "db_username": "${DB_USER}"
 }
 EOF
