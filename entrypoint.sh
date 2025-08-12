@@ -41,9 +41,7 @@ urlencode() {
   printf '%s' "$out"
 }
 
-# Defaults (already set early; keep here for readability)
-SITE_NAME=${SITE_NAME}
-PORT=${PORT}
+ 
 
 # Map Railway plugin env vars if DB_* not set
 # MySQL/MariaDB plugin variables
@@ -92,6 +90,12 @@ if [ -z "${DB_HOST:-}" ] && [ -n "${DATABASE_URL:-${MYSQL_URL:-}}" ]; then
   DB_PORT=${DB_PORT:-"$DB_PORT_CAND"}
 fi
 
+# Re-sync SITE_DB_NAME after possible URL parsing
+if [ -n "${DB_DATABASE:-}" ]; then
+  SITE_DB_NAME="${DB_DATABASE}"
+  export SITE_DB_NAME
+fi
+
 # Prefer REDIS_URL; fall back to REDIS_TLS_URL if provided by the platform
 if [ -z "${REDIS_URL:-}" ] && [ -n "${REDIS_TLS_URL:-}" ]; then
   REDIS_URL="${REDIS_TLS_URL}"
@@ -138,8 +142,8 @@ if [ -z "${REDIS_PASSWORD:-}" ] && [ -n "${REDIS_URL:-}" ]; then
   fi
 fi
 
-echo "---> Using SITE_NAME=$SITE_NAME"
 echo "---> Exposing Nginx on PORT=$PORT"
+echo "---> DB resolved: host='${DB_HOST}' port='${DB_PORT}' db='${SITE_DB_NAME}' user='${DB_USER:-(bench_default)}'"
 
 # Render Nginx config from template
 if [ -f /etc/nginx/templates/default.conf.template ]; then
@@ -195,55 +199,45 @@ if [ ! -f "sites/apps.txt" ]; then
   chown frappe:frappe sites/apps.txt
 fi
 
-# If site folder is missing and we are in attach-only mode (no DB creation),
-# create a minimal site structure and site_config.json pointing to external DB.
-if [ ! -d "sites/$SITE_ID" ] && [ "${ALLOW_NEW_SITE}" != "1" ]; then
-  echo "---> Attach mode: creating minimal site folder for $SITE_ID"
-  mkdir -p "sites/$SITE_ID"
-  echo "$SITE_ID" > sites/currentsite.txt
-  chown -R frappe:frappe "sites/$SITE_ID" sites/currentsite.txt
-fi
-
-# If site exists, use it. Otherwise, create it.
+# If site exists, configure it. Otherwise, create it.
 if [ -d "sites/$SITE_ID" ]; then
-  echo "---> Site $SITE_ID already exists. Using it..."
+  echo "---> Site '$SITE_ID' exists, ensuring configuration is up-to-date."
 
-  echo "---> Ensuring DB config is up-to-date in site_config.json"
+  # Ensure site_config.json exists, creating an empty one if not.
+  if [ ! -f "sites/$SITE_ID/site_config.json" ]; then
+    echo "{}" > "sites/$SITE_ID/site_config.json"
+    chown frappe:frappe "sites/$SITE_ID/site_config.json"
+  fi
+
+  # Unconditionally set current site and update DB config.
+  echo "---> Updating DB credentials and setting current site to '$SITE_ID'"
+  su - frappe -c "cd /home/frappe/frappe-bench && bench use '$SITE_ID'"
   su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_type mariadb"
   su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_host '$DB_HOST'"
   su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_port '${DB_PORT:-3306}'"
-  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_name '$SITE_DB_NAME'"
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_name '${SITE_DB_NAME}'"
   su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_password '$DB_PASSWORD'"
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_user '$DB_USER'"
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_username '$DB_USER'" || true
 
-  su - frappe -c "cd /home/frappe/frappe-bench && bench use $SITE_ID"
 else
-  echo "---> Site $SITE_ID does not exist. Creating it..."
+  echo "---> Site '$SITE_ID' does not exist."
   if [ "${ALLOW_NEW_SITE}" != "1" ]; then
-    echo "---> ALLOW_NEW_SITE=0; skipping new-site (expecting pre-provisioned DB schema)."
-  else
-  # Generate ADMIN_PASSWORD if not provided (template usually sets this)
-  if [ -z "${ADMIN_PASSWORD:-}" ]; then
-    ADMIN_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32 || true)"
-    echo "---> Generated ADMIN_PASSWORD for first run: $ADMIN_PASSWORD"
+    echo "---> ALLOW_NEW_SITE is not '1'. Exiting."
+    echo "---> To create a new site on first run, set ALLOW_NEW_SITE=1 and redeploy."
+    echo "---> To attach to an existing database, ensure the volume is correctly mounted and contains the site folder."
+    exit 1
   fi
-  su - frappe -c "cd /home/frappe/frappe-bench && bench new-site '$SITE_ID' \
-    --no-mariadb-socket \
-    --db-type mariadb \
-    --db-host '$DB_HOST' \
-    --db-port '$DB_PORT' \
-    --db-name '${SITE_DB_NAME:-$SITE_NAME}' \
-    --db-root-username '${DB_USER}' \
-    --db-root-password '${DB_PASSWORD}' \
-    --admin-password '${ADMIN_PASSWORD}'"
 
-  echo "---> Installing ERPNext app..."
-  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' install-app erpnext"
+  echo "---> Creating new site '$SITE_ID' because ALLOW_NEW_SITE=1."
+  # Generate admin password if not provided
+  ADMIN_PASSWORD=${ADMIN_PASSWORD:-$(generate_password)}
+  echo "---> Admin password will be: $ADMIN_PASSWORD"
 
-  # Map external host to internal site id
-  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config host_name '$SITE_NAME'"
+  # Create new site
+  # Note: --db-root-username is used because bench requires it, but for managed DBs, this is just the standard user.
+  su - frappe -c "cd /home/frappe/frappe-bench && bench new-site '$SITE_ID' --no-mariadb-socket --db-name '$SITE_DB_NAME' --db-host '$DB_HOST' --db-port '${DB_PORT:-3306}' --db-type mariadb --mariadb-root-username '$DB_USER' --mariadb-root-password '$DB_PASSWORD' --admin-password '$ADMIN_PASSWORD' --install-app erpnext --set-default"
 
-  echo "---> Site created. ID=$SITE_ID, host=$SITE_NAME, db=$SITE_DB_NAME"
-  fi
 fi
 
 # Always configure RQ ACL auth according to USE_RQ_AUTH (managed Redis -> 0)
@@ -311,17 +305,17 @@ if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ] || [ -n "${REDIS_URL:-}"
   su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_queue_short '$REDIS_URL_CFG'" frappe || true
   su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_queue_long '$REDIS_URL_CFG'" frappe || true
 
-  # Configure RQ ACL auth as requested (default: 0 for managed Redis)
-  su - frappe -c "cd /home/frappe/frappe-bench && bench set-config -g use_rq_auth '${USE_RQ_AUTH}'" frappe || true
-  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config use_rq_auth '${USE_RQ_AUTH}'" frappe || true
-
   # Log masked URL for troubleshooting
   REDIS_URL_MASKED="$(echo "$REDIS_URL_CFG" | sed -E 's#://[^@]*@#://***@#')"
   echo "---> Configured Redis URL: $REDIS_URL_MASKED"
 fi
 
-# Ensure scheduler is enabled
-su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' enable-scheduler" frappe || true
+# Ensure scheduler is enabled only if DB appears initialized
+if mysql -N -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" "$SITE_DB_NAME" -e "SHOW TABLES LIKE 'tabDefaultValue';" >/dev/null 2>&1; then
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' enable-scheduler" frappe || true
+else
+  echo "---> Skipping enable-scheduler (database '$SITE_DB_NAME' seems empty or inaccessible)"
+fi
 
 echo "---> Launching Supervisor"
 exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
