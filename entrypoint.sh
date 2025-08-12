@@ -192,6 +192,13 @@ chown -R frappe:frappe /home/frappe/frappe-bench
 
 cd /home/frappe/frappe-bench
 
+# Ensure common_site_config.json exists, as bench commands require it.
+if [ ! -f "sites/common_site_config.json" ]; then
+  echo "---> sites/common_site_config.json not found. Creating empty config..."
+  echo "{}" > sites/common_site_config.json
+  chown frappe:frappe sites/common_site_config.json
+fi
+
 # If sites/apps.txt does not exist, create it with erpnext
 if [ ! -f "sites/apps.txt" ]; then
   echo "---> sites/apps.txt not found. Creating it with default apps..."
@@ -236,7 +243,7 @@ else
 
   # Create new site
   # Note: --db-root-username is used because bench requires it, but for managed DBs, this is just the standard user.
-  su - frappe -c "cd /home/frappe/frappe-bench && bench new-site '$SITE_ID' --no-mariadb-socket --db-name '$SITE_DB_NAME' --db-host '$DB_HOST' --db-port '${DB_PORT:-3306}' --db-type mariadb --mariadb-root-username '$DB_USER' --mariadb-root-password '$DB_PASSWORD' --admin-password '$ADMIN_PASSWORD' --install-app erpnext --set-default"
+  su - frappe -c "cd /home/frappe/frappe-bench && bench new-site '$SITE_ID' --force --no-mariadb-socket --db-name '$SITE_DB_NAME' --db-host '$DB_HOST' --db-port '${DB_PORT:-3306}' --db-type mariadb --mariadb-root-username '$DB_USER' --mariadb-root-password '$DB_PASSWORD' --admin-password '$ADMIN_PASSWORD' --install-app erpnext --set-default"
 
 fi
 
