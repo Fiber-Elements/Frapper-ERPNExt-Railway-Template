@@ -4,6 +4,7 @@
     {
       "name": "app",
       "builder": "DOCKERFILE",
+      "start": "/home/frappe/entrypoint.sh",
       "env": {
         "SITE_NAME": "${{RAILWAY_PUBLIC_DOMAIN}}",
         "DB_HOST": "${{services.db.host}}",

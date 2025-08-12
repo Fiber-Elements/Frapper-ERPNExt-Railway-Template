@@ -1,12 +1,6 @@
 #!/bin/bash
 set -eo pipefail
 
-# Wait for Railway to provide the environment variables
-while [ -z "$DB_HOST" ] || [ -z "$DB_PORT" ] || [ -z "$ADMIN_PASSWORD" ]; do
-  echo "Waiting for database and admin credentials to be available..."
-  sleep 5
-done
-
 # Default to the site name from the public domain, or 'erp.localhost' if not set
 SITE_NAME=${RAILWAY_PUBLIC_DOMAIN:-erp.localhost}
 
