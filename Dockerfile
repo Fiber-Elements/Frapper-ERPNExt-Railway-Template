@@ -1,14 +1,16 @@
 # Use the official Frappe Docker image as a base
 FROM frappe/erpnext:v15.18.0
 
-# Set the user to root to have the necessary permissions to copy the entrypoint script
+# The base image doesn't have nc, so we need to install it.
+# We switch to root to install packages, then back to frappe.
 USER root
+RUN apt-get update && apt-get install -y netcat-openbsd && rm -rf /var/lib/apt/lists/*
 
 # Copy the entrypoint script and give it the necessary permissions
 COPY --chown=frappe:frappe entrypoint.sh /home/frappe/entrypoint.sh
 RUN chmod +x /home/frappe/entrypoint.sh
 
-# Set the user back to frappe
+# Switch back to the frappe user
 USER frappe
 
 # Set the entrypoint to our custom script

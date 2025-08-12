@@ -1,6 +1,14 @@
 #!/bin/bash
 set -eo pipefail
 
+# Wait for the database to be ready
+# We use nc (netcat) to check if the port is open
+echo "---> Waiting for database to be ready..."
+while ! nc -z $DB_HOST $DB_PORT; do
+  sleep 1
+done
+echo "---> Database is ready."
+
 # Default to the site name from the public domain, or 'erp.localhost' if not set
 SITE_NAME=${RAILWAY_PUBLIC_DOMAIN:-erp.localhost}
 
