@@ -13,10 +13,12 @@ if [ ! -d "sites/$SITE_NAME" ]; then
     --db-host "$MARIADB_HOST" \
     --db-port "$MARIADB_PORT" \
     --db-name "$MARIADB_DATABASE" \
-    --db-user "$MARIADB_USER" \
-    --db-password "$MARIADB_PASSWORD" \
-    --admin-password "$ADMIN_PASSWORD" \
-    --install-app erpnext
+    --mariadb-root-username "$MARIADB_USER" \
+    --mariadb-root-password "$MARIADB_PASSWORD" \
+    --admin-password "$ADMIN_PASSWORD"
+
+  echo "---> Installing ERPNext app..."
+  bench --site "$SITE_NAME" install-app erpnext
 
   echo "---> Site $SITE_NAME created."
 else
