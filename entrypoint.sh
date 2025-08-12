@@ -1,8 +1,14 @@
 #!/bin/bash
 set -eo pipefail
 
-# Default to the site name 'erp.localhost' if not set
-SITE_NAME=${SITE_NAME:-erp.localhost}
+# Wait for Railway to provide the environment variables
+while [ -z "$MARIADB_HOST" ] || [ -z "$MARIADB_PORT" ] || [ -z "$ADMIN_PASSWORD" ]; do
+  echo "Waiting for database and admin credentials to be available..."
+  sleep 5
+done
+
+# Default to the site name from the public domain, or 'erp.localhost' if not set
+SITE_NAME=${RAILWAY_PUBLIC_DOMAIN:-erp.localhost}
 
 # Check if the site directory exists
 if [ ! -d "sites/$SITE_NAME" ]; then
