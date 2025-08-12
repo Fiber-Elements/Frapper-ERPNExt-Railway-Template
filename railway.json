@@ -2,46 +2,26 @@
   "$schema": "https://railway.app/railway.schema.json",
   "services": [
     {
-      "name": "erpnext",
-      "image": "ghcr.io/fiber-elements/frapper-erpnext-railway-template:latest",
-      "ports": [
-        {
-          "port": 8000,
-          "public": true
-        }
-      ],
-      "volumes": [
-        {
-          "mountPath": "/home/frappe/frappe-bench/sites",
-          "name": "sites"
-        }
-      ],
-      "startCommand": "bash /app/scripts/init.sh && bench start",
-      "restartPolicy": "ON_FAILURE",
-      "restartRetries": 5
+      "name": "app",
+      "builder": "DOCKERFILE",
+      "env": {
+        "SITE_NAME": "${{RAILWAY_PUBLIC_DOMAIN}}",
+        "MARIADB_HOST": "${{services.db.host}}",
+        "MARIADB_PORT": "${{services.db.port}}",
+        "MARIADB_DATABASE": "${{services.db.database}}",
+        "MARIADB_USER": "${{services.db.user}}",
+        "MARIADB_PASSWORD": "${{services.db.password}}",
+        "REDIS_HOST": "${{services.redis.host}}",
+        "REDIS_PORT": "${{services.redis.port}}"
+      }
     },
     {
-      "name": "mysql",
-      "type": "mysql",
-      "version": "8.0"
+      "name": "db",
+      "service": "mariadb"
     },
     {
       "name": "redis",
-      "type": "redis",
-      "version": "7.0"
+      "service": "redis"
     }
-  ],
-  "variables": {
-    "SITES": "${{RAILWAY_SERVICE_ID}}.railway.app",
-    "ADMIN_PASSWORD": "${{RAILWAY_GENERATED_PASSWORD}}",
-    "DB_HOST": "${{mysql.MYSQL_HOST}}",
-    "DB_PORT": "${{mysql.MYSQL_PORT}}",
-    "DB_USER": "${{mysql.MYSQL_USER}}",
-    "DB_PASSWORD": "${{mysql.MYSQL_PASSWORD}}",
-    "DB_NAME": "${{mysql.MYSQL_DATABASE}}",
-    "REDIS_CACHE": "redis://${{redis.REDIS_HOST}}:${{redis.REDIS_PORT}}",
-    "REDIS_QUEUE": "redis://${{redis.REDIS_HOST}}:${{redis.REDIS_PORT}}",
-    "REDIS_SOCKETIO": "redis://${{redis.REDIS_HOST}}:${{redis.REDIS_PORT}}",
-    "LETSENCRYPT_EMAIL": "ned.tabulovl@gmail.com"
-  }
+  ]
 }
