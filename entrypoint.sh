@@ -1,6 +1,24 @@
 #!/bin/bash
 set -euo pipefail
 
+# Derive a safe SITE_ID (folder/db user base) and SITE_DB_NAME (<=32 for MySQL user)
+if [ -z "${SITE_ID:-}" ]; then
+  SAFE_ID=$(echo "$SITE_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g' | sed -E 's/^_+|_+$//g')
+  if [ -z "$SAFE_ID" ]; then SAFE_ID="site"; fi
+  SITE_ID="${SAFE_ID:0:30}"
+  export SITE_ID
+fi
+if [ -z "${SITE_DB_NAME:-}" ]; then
+  SAFE_DB=$(echo "$SITE_ID" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g' | sed -E 's/^_+|_+$//g')
+  if [ -z "$SAFE_DB" ]; then SAFE_DB="site"; fi
+  SITE_DB_NAME="${SAFE_DB:0:30}"
+  export SITE_DB_NAME
+fi
+
+echo "---> Using SITE_NAME (host) = $SITE_NAME"
+echo "---> Using SITE_ID (bench) = $SITE_ID"
+echo "---> Using SITE_DB_NAME     = $SITE_DB_NAME"
+
 # URL-encode helper (for passwords in URLs)
 urlencode() {
   local LC_ALL=C
@@ -144,16 +162,16 @@ fi
 
 cd /home/frappe/frappe-bench
 
-# Create site if not exists
-if [ ! -d "sites/$SITE_NAME" ]; then
+# Create site if not exists (use SITE_ID folder)
+if [ ! -d "sites/$SITE_ID" ]; then
   # Generate ADMIN_PASSWORD if not provided (template usually sets this)
   if [ -z "${ADMIN_PASSWORD:-}" ]; then
     ADMIN_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32 || true)"
     if [ -z "$ADMIN_PASSWORD" ]; then ADMIN_PASSWORD="Admin$(date +%s)"; fi
     echo "---> Generated ADMIN_PASSWORD for first run: $ADMIN_PASSWORD"
   fi
-  echo "---> Creating site $SITE_NAME..."
-  su -s /bin/bash -c "bench new-site '$SITE_NAME' \
+  echo "---> Creating site $SITE_ID (host: $SITE_NAME)..."
+  su -s /bin/bash -c "bench new-site '$SITE_ID' \
     --no-mariadb-socket \
     --db-type mariadb \
     --db-host '$DB_HOST' \
@@ -164,11 +182,14 @@ if [ ! -d "sites/$SITE_NAME" ]; then
     --admin-password '${ADMIN_PASSWORD}'" frappe
 
   echo "---> Installing ERPNext app..."
-  su -s /bin/bash -c "bench --site '$SITE_NAME' install-app erpnext" frappe
+  su -s /bin/bash -c "bench --site '$SITE_ID' install-app erpnext" frappe
 
-  echo "---> Site $SITE_NAME created."
+  # Map external host to internal site id
+  su -s /bin/bash -c "bench --site '$SITE_ID' set-config host_name '$SITE_NAME'" frappe
+
+  echo "---> Site created. ID=$SITE_ID, host=$SITE_NAME, db=$SITE_DB_NAME"
 else
-  echo "---> Site $SITE_NAME already exists."
+  echo "---> Site already exists. ID=$SITE_ID (host=$SITE_NAME)"
 fi
 
 # Set Redis URLs if provided
@@ -212,21 +233,21 @@ if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
   su -s /bin/bash -c "bench set-config -g redis_cache '$REDIS_URL_CFG'" frappe
   su -s /bin/bash -c "bench set-config -g redis_queue '$REDIS_URL_CFG'" frappe
   su -s /bin/bash -c "bench set-config -g redis_socketio '$REDIS_URL_CFG'" frappe
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_cache '$REDIS_URL_CFG'" frappe
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_queue '$REDIS_URL_CFG'" frappe
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_socketio '$REDIS_URL_CFG'" frappe
+  su -s /bin/bash -c "bench --site '$SITE_ID' set-config redis_cache '$REDIS_URL_CFG'" frappe
+  su -s /bin/bash -c "bench --site '$SITE_ID' set-config redis_queue '$REDIS_URL_CFG'" frappe
+  su -s /bin/bash -c "bench --site '$SITE_ID' set-config redis_socketio '$REDIS_URL_CFG'" frappe
 
   # Also set per-queue keys that some setups read
   su -s /bin/bash -c "bench set-config -g redis_queue_default '$REDIS_URL_CFG'" frappe || true
   su -s /bin/bash -c "bench set-config -g redis_queue_short '$REDIS_URL_CFG'" frappe || true
   su -s /bin/bash -c "bench set-config -g redis_queue_long '$REDIS_URL_CFG'" frappe || true
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_queue_default '$REDIS_URL_CFG'" frappe || true
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_queue_short '$REDIS_URL_CFG'" frappe || true
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_queue_long '$REDIS_URL_CFG'" frappe || true
+  su -s /bin/bash -c "bench --site '$SITE_ID' set-config redis_queue_default '$REDIS_URL_CFG'" frappe || true
+  su -s /bin/bash -c "bench --site '$SITE_ID' set-config redis_queue_short '$REDIS_URL_CFG'" frappe || true
+  su -s /bin/bash -c "bench --site '$SITE_ID' set-config redis_queue_long '$REDIS_URL_CFG'" frappe || true
 
   # Ensure RQ ACL auth is disabled when using external managed Redis
   su -s /bin/bash -c "bench set-config -g use_rq_auth 0" frappe || true
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config use_rq_auth 0" frappe || true
+  su -s /bin/bash -c "bench --site '$SITE_ID' set-config use_rq_auth 0" frappe || true
 
   # Log masked URL for troubleshooting
   REDIS_URL_MASKED="$(echo "$REDIS_URL_CFG" | sed -E 's#://[^@]*@#://***@#')"
