@@ -117,8 +117,8 @@ if [ ! -d "sites/$SITE_NAME" ]; then
     --db-host '$DB_HOST' \
     --db-port '$DB_PORT' \
     --db-name '${DB_DATABASE:-$SITE_NAME}' \
-    --db-user '${DB_USER}' \
-    --db-password '${DB_PASSWORD}' \
+    --db-root-username '${DB_USER}' \
+    --db-root-password '${DB_PASSWORD}' \
     --admin-password '${ADMIN_PASSWORD}'" frappe
 
   echo "---> Installing ERPNext app..."
