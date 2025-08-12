@@ -136,8 +136,8 @@ echo "---> Exposing Nginx on PORT=$PORT"
 # Render Nginx config from template
 if [ -f /etc/nginx/templates/default.conf.template ]; then
   echo "---> Rendering Nginx config from template"
-  export SITE_NAME PORT
-  envsubst '${PORT} ${SITE_NAME}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
+  export SITE_NAME PORT SITE_ID
+  envsubst '${PORT} ${SITE_NAME} ${SITE_ID}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
 fi
 
 # Disable default site if present to avoid port conflicts
@@ -206,6 +206,10 @@ if [ ! -d "sites/$SITE_ID" ]; then
 else
   echo "---> Site already exists. ID=$SITE_ID (host=$SITE_NAME)"
 fi
+
+# Always configure RQ ACL auth according to USE_RQ_AUTH (managed Redis -> 0)
+su -s /bin/bash -c "bench set-config -g use_rq_auth '${USE_RQ_AUTH}'" frappe || true
+su -s /bin/bash -c "bench --site '$SITE_ID' set-config use_rq_auth '${USE_RQ_AUTH}'" frappe || true
 
 # Set Redis URLs if provided (host/port or direct URL)
 if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ] || [ -n "${REDIS_URL:-}" ]; then
