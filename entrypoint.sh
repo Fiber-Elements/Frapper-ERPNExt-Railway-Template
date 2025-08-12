@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 set -euo pipefail
 
 # Set core defaults early so SITE_ID derives from a stable host value
@@ -175,9 +176,19 @@ if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
   echo "---> Redis is ready."
 fi
 
+# Ensure bench directory and all contents are owned by frappe user
+chown -R frappe:frappe /home/frappe/frappe-bench
+
 cd /home/frappe/frappe-bench
 
-# Create site if not exists (use SITE_ID folder)
+# If sites/apps.txt does not exist, create it with erpnext
+if [ ! -f "sites/apps.txt" ]; then
+  echo "---> sites/apps.txt not found. Creating it with default apps..."
+  echo -e "frappe\nerpnext" > sites/apps.txt
+  chown frappe:frappe sites/apps.txt
+fi
+
+# Check if site exists (use SITE_ID folder)
 if [ ! -d "sites/$SITE_ID" ]; then
   # Generate ADMIN_PASSWORD if not provided (template usually sets this)
   if [ -z "${ADMIN_PASSWORD:-}" ]; then
