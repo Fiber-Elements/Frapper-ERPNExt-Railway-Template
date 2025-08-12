@@ -5,6 +5,18 @@ set -euo pipefail
 SITE_NAME=${SITE_NAME:-${RAILWAY_PUBLIC_DOMAIN:-erp.localhost}}
 PORT=${PORT:-8080}
 
+# Map Railway plugin env vars if DB_* not set
+# MySQL/MariaDB plugin variables
+DB_HOST=${DB_HOST:-${MYSQLHOST:-${MARIADBHOST:-}}}
+DB_PORT=${DB_PORT:-${MYSQLPORT:-${MARIADBPORT:-3306}}}
+DB_DATABASE=${DB_DATABASE:-${MYSQLDATABASE:-$SITE_NAME}}
+DB_USER=${DB_USER:-${MYSQLUSER:-${MARIADBUSER:-}}}
+DB_PASSWORD=${DB_PASSWORD:-${MYSQLPASSWORD:-${MARIADBPASSWORD:-}}}
+
+# Redis plugin variables
+REDIS_HOST=${REDIS_HOST:-${REDISHOST:-}}
+REDIS_PORT=${REDIS_PORT:-${REDISPORT:-6379}}
+
 echo "---> Using SITE_NAME=$SITE_NAME"
 echo "---> Exposing Nginx on PORT=$PORT"
 
@@ -50,8 +62,8 @@ if [ ! -d "sites/$SITE_NAME" ]; then
     --db-host '$DB_HOST' \
     --db-port '$DB_PORT' \
     --db-name '${DB_DATABASE:-$SITE_NAME}' \
-    --mariadb-root-username '${DB_USER}' \
-    --mariadb-root-password '${DB_PASSWORD}' \
+    --db-user '${DB_USER}' \
+    --db-password '${DB_PASSWORD}' \
     --admin-password '${ADMIN_PASSWORD}'" frappe
 
   echo "---> Installing ERPNext app..."

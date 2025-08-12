@@ -6,6 +6,7 @@ FROM frappe/erpnext:v15.18.0
 USER root
 RUN apt-get update && apt-get install -y \
     netcat-openbsd \
+    mariadb-client \
     nginx \
     supervisor \
     gettext-base \
