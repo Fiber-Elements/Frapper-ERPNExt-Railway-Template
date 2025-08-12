@@ -16,6 +16,7 @@ DB_PASSWORD=${DB_PASSWORD:-${MYSQLPASSWORD:-${MARIADBPASSWORD:-}}}
 # Redis plugin variables
 REDIS_HOST=${REDIS_HOST:-${REDISHOST:-}}
 REDIS_PORT=${REDIS_PORT:-${REDISPORT:-6379}}
+REDIS_PASSWORD=${REDIS_PASSWORD:-${REDISPASSWORD:-}}
 
 # URL fallbacks: DATABASE_URL / MYSQL_URL
 if [ -z "${DB_HOST:-}" ] && [ -n "${DATABASE_URL:-${MYSQL_URL:-}}" ]; then
@@ -44,7 +45,16 @@ if [ -z "${REDIS_HOST:-}" ] && [ -n "${REDIS_URL:-}" ]; then
   RU="${REDIS_URL}"
   rest="${RU#*://}"
   if [[ "$rest" == *"@"* ]]; then
+    creds="${rest%@*}"
     hostdb="${rest#*@}"
+    # creds may be ":password" or "user:password"; we only need password
+    if [ -n "$creds" ] && [ "$creds" != "$rest" ]; then
+      if [[ "$creds" == *":"* ]]; then
+        REDIS_PASSWORD=${REDIS_PASSWORD:-"${creds#*:}"}
+      else
+        REDIS_PASSWORD=${REDIS_PASSWORD:-"$creds"}
+      fi
+    fi
   else
     hostdb="$rest"
   fi
@@ -53,6 +63,22 @@ if [ -z "${REDIS_HOST:-}" ] && [ -n "${REDIS_URL:-}" ]; then
   REDIS_PORT_CAND="${hostport#*:}"
   if [ "$REDIS_PORT_CAND" = "$hostport" ] || [ -z "$REDIS_PORT_CAND" ]; then REDIS_PORT_CAND=6379; fi
   REDIS_PORT=${REDIS_PORT:-"$REDIS_PORT_CAND"}
+fi
+
+# If password still empty but REDIS_URL provided, extract password regardless of host presence
+if [ -z "${REDIS_PASSWORD:-}" ] && [ -n "${REDIS_URL:-}" ]; then
+  RU="${REDIS_URL}"
+  rest="${RU#*://}"
+  if [[ "$rest" == *"@"* ]]; then
+    creds="${rest%@*}"
+    if [ -n "$creds" ] && [ "$creds" != "$rest" ]; then
+      if [[ "$creds" == *":"* ]]; then
+        REDIS_PASSWORD="${creds#*:}"
+      else
+        REDIS_PASSWORD="$creds"
+      fi
+    fi
+  fi
 fi
 
 echo "---> Using SITE_NAME=$SITE_NAME"
@@ -131,9 +157,14 @@ fi
 
 # Set Redis URLs if provided
 if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_cache 'redis://$REDIS_HOST:$REDIS_PORT'" frappe
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_queue 'redis://$REDIS_HOST:$REDIS_PORT'" frappe
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_socketio 'redis://$REDIS_HOST:$REDIS_PORT'" frappe
+  if [ -n "${REDIS_PASSWORD:-}" ]; then
+    REDIS_URL_CFG="redis://:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT}"
+  else
+    REDIS_URL_CFG="redis://${REDIS_HOST}:${REDIS_PORT}"
+  fi
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_cache '$REDIS_URL_CFG'" frappe
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_queue '$REDIS_URL_CFG'" frappe
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_socketio '$REDIS_URL_CFG'" frappe
 fi
 
 # Ensure scheduler is enabled
