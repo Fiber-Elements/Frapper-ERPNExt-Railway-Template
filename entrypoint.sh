@@ -188,6 +188,13 @@ if [ ! -f "sites/apps.txt" ]; then
   chown frappe:frappe sites/apps.txt
 fi
 
+# Ensure common_site_config.json exists for bench commands
+if [ ! -f "sites/common_site_config.json" ]; then
+  echo "---> common_site_config.json not found. Creating empty config..."
+  echo "{}" > sites/common_site_config.json
+  chown frappe:frappe sites/common_site_config.json
+fi
+
 # If site exists, use it. Otherwise, create it.
 if [ -d "sites/$SITE_ID" ]; then
   echo "---> Site $SITE_ID already exists. Using it..."
