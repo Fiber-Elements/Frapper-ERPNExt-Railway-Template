@@ -12,7 +12,7 @@ ARG APPS_JSON_BASE64
 # Also, install the apps using bench
 RUN if [ -n "$APPS_JSON_BASE64" ]; then \
         echo "$APPS_JSON_BASE64" | base64 -d > /home/frappe/frappe-bench/apps.json && \
-        bench get-app erpnext https://github.com/frappe/erpnext --branch version-15 && \
+        bench get-app --resolve-deps && \
         bench install-app erpnext; \
     fi
 
