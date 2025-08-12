@@ -11,6 +11,7 @@
         "DB_DATABASE": "${{db.MYSQLDATABASE}}",
         "DB_USER": "${{db.MYSQLUSER}}",
         "DB_PASSWORD": "${{db.MYSQLPASSWORD}}",
+        "ADMIN_PASSWORD": "${{ADMIN_PASSWORD}}",
         "REDIS_HOST": "${{redis.REDISHOST}}",
         "REDIS_PORT": "${{redis.REDISPORT}}"
       }

@@ -1,46 +1,75 @@
 #!/bin/bash
-set -eo pipefail
+set -euo pipefail
+
+# Defaults
+SITE_NAME=${SITE_NAME:-${RAILWAY_PUBLIC_DOMAIN:-erp.localhost}}
+PORT=${PORT:-8080}
+
+echo "---> Using SITE_NAME=$SITE_NAME"
+echo "---> Exposing Nginx on PORT=$PORT"
+
+# Render Nginx config from template
+if [ -f /etc/nginx/templates/default.conf.template ]; then
+  echo "---> Rendering Nginx config from template"
+  envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
+fi
+
+# Disable default site if present to avoid port conflicts
+rm -f /etc/nginx/sites-enabled/default || true
 
 # Wait for the database to be ready
-while [ -z "$DB_HOST" ] || [ -z "$DB_PORT" ]; do
-  echo "---> Waiting for DB_HOST and DB_PORT environment variables..."
-  sleep 2
-done
+if [ -z "${DB_HOST:-}" ] || [ -z "${DB_PORT:-}" ]; then
+  echo "---> ERROR: DB_HOST and DB_PORT must be set"
+  exit 1
+fi
 
 echo "---> Waiting for database connection at $DB_HOST:$DB_PORT..."
-while ! nc -z "$DB_HOST" "$DB_PORT"; do
+until nc -z "$DB_HOST" "$DB_PORT"; do
   sleep 1
 done
 echo "---> Database is ready."
 
-# Default to the site name from the public domain, or 'erp.localhost' if not set
-SITE_NAME=${RAILWAY_PUBLIC_DOMAIN:-erp.localhost}
+# Optionally wait for Redis
+if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
+  echo "---> Waiting for Redis at $REDIS_HOST:$REDIS_PORT..."
+  until nc -z "$REDIS_HOST" "$REDIS_PORT"; do
+    sleep 1
+  done
+  echo "---> Redis is ready."
+fi
 
-# Check if the site directory exists
+cd /home/frappe/frappe-bench
+
+# Create site if not exists
 if [ ! -d "sites/$SITE_NAME" ]; then
-  echo "---> Site $SITE_NAME does not exist. Creating..."
-
+  echo "---> Creating site $SITE_NAME..."
   bench new-site "$SITE_NAME" \
     --no-mariadb-socket \
+    --db-type mariadb \
     --db-host "$DB_HOST" \
     --db-port "$DB_PORT" \
-    --db-name "$DB_DATABASE" \
-    --mariadb-root-username "$DB_USER" \
-    --mariadb-root-password "$DB_PASSWORD" \
-    --admin-password "$ADMIN_PASSWORD"
+    --db-name "${DB_DATABASE:-$SITE_NAME}" \
+    --db-user "${DB_USER}" \
+    --db-password "${DB_PASSWORD}" \
+    --admin-password "${ADMIN_PASSWORD}"
 
   echo "---> Installing ERPNext app..."
   bench --site "$SITE_NAME" install-app erpnext
 
   echo "---> Site $SITE_NAME created."
 else
-  echo "---> Site $SITE_NAME already exists. Skipping creation."
+  echo "---> Site $SITE_NAME already exists."
 fi
 
-# Set Redis URLs
-bench --site "$SITE_NAME" set-config -g redis_cache "redis://$REDIS_HOST:$REDIS_PORT"
-bench --site "$SITE_NAME" set-config -g redis_queue "redis://$REDIS_HOST:$REDIS_PORT"
-bench --site "$SITE_NAME" set-config -g redis_socketio "redis://$REDIS_HOST:$REDIS_PORT"
+# Set Redis URLs if provided
+if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
+  bench --site "$SITE_NAME" set-config -g redis_cache "redis://$REDIS_HOST:$REDIS_PORT"
+  bench --site "$SITE_NAME" set-config -g redis_queue "redis://$REDIS_HOST:$REDIS_PORT"
+  bench --site "$SITE_NAME" set-config -g redis_socketio "redis://$REDIS_HOST:$REDIS_PORT"
+fi
 
-echo "---> Starting Frappe Bench..."
-bench start
+# Ensure scheduler is enabled
+bench --site "$SITE_NAME" enable-scheduler || true
+
+echo "---> Launching Supervisor"
+exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
