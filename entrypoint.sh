@@ -11,7 +11,8 @@ echo "---> Exposing Nginx on PORT=$PORT"
 # Render Nginx config from template
 if [ -f /etc/nginx/templates/default.conf.template ]; then
   echo "---> Rendering Nginx config from template"
-  envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
+  export SITE_NAME PORT
+  envsubst '${PORT} ${SITE_NAME}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
 fi
 
 # Disable default site if present to avoid port conflicts
@@ -43,18 +44,18 @@ cd /home/frappe/frappe-bench
 # Create site if not exists
 if [ ! -d "sites/$SITE_NAME" ]; then
   echo "---> Creating site $SITE_NAME..."
-  bench new-site "$SITE_NAME" \
+  su -s /bin/bash -c "bench new-site '$SITE_NAME' \
     --no-mariadb-socket \
     --db-type mariadb \
-    --db-host "$DB_HOST" \
-    --db-port "$DB_PORT" \
-    --db-name "${DB_DATABASE:-$SITE_NAME}" \
-    --db-user "${DB_USER}" \
-    --db-password "${DB_PASSWORD}" \
-    --admin-password "${ADMIN_PASSWORD}"
+    --db-host '$DB_HOST' \
+    --db-port '$DB_PORT' \
+    --db-name '${DB_DATABASE:-$SITE_NAME}' \
+    --mariadb-root-username '${DB_USER}' \
+    --mariadb-root-password '${DB_PASSWORD}' \
+    --admin-password '${ADMIN_PASSWORD}'" frappe
 
   echo "---> Installing ERPNext app..."
-  bench --site "$SITE_NAME" install-app erpnext
+  su -s /bin/bash -c "bench --site '$SITE_NAME' install-app erpnext" frappe
 
   echo "---> Site $SITE_NAME created."
 else
@@ -63,13 +64,13 @@ fi
 
 # Set Redis URLs if provided
 if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
-  bench --site "$SITE_NAME" set-config -g redis_cache "redis://$REDIS_HOST:$REDIS_PORT"
-  bench --site "$SITE_NAME" set-config -g redis_queue "redis://$REDIS_HOST:$REDIS_PORT"
-  bench --site "$SITE_NAME" set-config -g redis_socketio "redis://$REDIS_HOST:$REDIS_PORT"
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_cache 'redis://$REDIS_HOST:$REDIS_PORT'" frappe
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_queue 'redis://$REDIS_HOST:$REDIS_PORT'" frappe
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_socketio 'redis://$REDIS_HOST:$REDIS_PORT'" frappe
 fi
 
 # Ensure scheduler is enabled
-bench --site "$SITE_NAME" enable-scheduler || true
+su -s /bin/bash -c "bench --site '$SITE_NAME' enable-scheduler" frappe || true
 
 echo "---> Launching Supervisor"
 exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
