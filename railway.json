@@ -1,0 +1,47 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "services": [
+    {
+      "name": "erpnext",
+      "image": "ghcr.io/${{RAILWAY_GIT_REPO_OWNER}}/${{RAILWAY_GIT_REPO_NAME}}:latest",
+      "ports": [
+        {
+          "port": 8000,
+          "public": true
+        }
+      ],
+      "volumes": [
+        {
+          "mountPath": "/home/frappe/frappe-bench/sites",
+          "name": "sites"
+        }
+      ],
+      "startCommand": "bash /app/scripts/init.sh && bench start",
+      "restartPolicy": "ON_FAILURE",
+      "restartRetries": 5
+    },
+    {
+      "name": "mysql",
+      "type": "mysql",
+      "version": "8.0"
+    },
+    {
+      "name": "redis",
+      "type": "redis",
+      "version": "7.0"
+    }
+  ],
+  "variables": {
+    "SITES": "${{RAILWAY_SERVICE_ID}}.railway.app",
+    "ADMIN_PASSWORD": "${{RAILWAY_GENERATED_PASSWORD}}",
+    "DB_HOST": "${{mysql.MYSQL_HOST}}",
+    "DB_PORT": "${{mysql.MYSQL_PORT}}",
+    "DB_USER": "${{mysql.MYSQL_USER}}",
+    "DB_PASSWORD": "${{mysql.MYSQL_PASSWORD}}",
+    "DB_NAME": "${{mysql.MYSQL_DATABASE}}",
+    "REDIS_CACHE": "redis://${{redis.REDIS_HOST}}:${{redis.REDIS_PORT}}",
+    "REDIS_QUEUE": "redis://${{redis.REDIS_HOST}}:${{redis.REDIS_PORT}}",
+    "REDIS_SOCKETIO": "redis://${{redis.REDIS_HOST}}:${{redis.REDIS_PORT}}",
+    "LETSENCRYPT_EMAIL": "ned.tabulovl@gmail.com"
+  }
+}
