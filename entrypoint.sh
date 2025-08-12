@@ -62,6 +62,13 @@ REDIS_USERNAME=${REDIS_USERNAME:-${REDISUSER:-}}
 # Toggle Redis RQ ACL auth (managed Redis typically doesn't support ACL users)
 # 0 = disabled (default/recommended for managed Redis), 1 = enabled (requires bench create-rq-users on self-managed Redis)
 USE_RQ_AUTH=${USE_RQ_AUTH:-0}
+ALLOW_NEW_SITE=${ALLOW_NEW_SITE:-0}
+
+# If a concrete database name is provided by the platform, prefer it for SITE_DB_NAME
+if [ -n "${DB_DATABASE:-}" ]; then
+  SITE_DB_NAME="${DB_DATABASE}"
+  export SITE_DB_NAME
+fi
 
 # URL fallbacks: DATABASE_URL / MYSQL_URL
 if [ -z "${DB_HOST:-}" ] && [ -n "${DATABASE_URL:-${MYSQL_URL:-}}" ]; then
@@ -195,12 +202,34 @@ if [ ! -f "sites/common_site_config.json" ]; then
   chown frappe:frappe sites/common_site_config.json
 fi
 
+# If site folder is missing and we are in attach-only mode (no DB creation),
+# create a minimal site structure and site_config.json pointing to external DB.
+if [ ! -d "sites/$SITE_ID" ] && [ "${ALLOW_NEW_SITE}" != "1" ]; then
+  echo "---> Attach mode: creating minimal site folder and site_config.json for $SITE_ID"
+  mkdir -p "sites/$SITE_ID"
+  cat > "sites/$SITE_ID/site_config.json" <<EOF
+{
+  "db_name": "${SITE_DB_NAME}",
+  "db_password": "${DB_PASSWORD}",
+  "db_type": "mariadb",
+  "db_host": "${DB_HOST}",
+  "db_port": "${DB_PORT}",
+  "db_username": "${DB_USER}"
+}
+EOF
+  echo "$SITE_ID" > sites/currentsite.txt
+  chown -R frappe:frappe "sites/$SITE_ID" sites/currentsite.txt
+fi
+
 # If site exists, use it. Otherwise, create it.
 if [ -d "sites/$SITE_ID" ]; then
   echo "---> Site $SITE_ID already exists. Using it..."
   su - frappe -c "cd /home/frappe/frappe-bench && bench use $SITE_ID"
 else
   echo "---> Site $SITE_ID does not exist. Creating it..."
+  if [ "${ALLOW_NEW_SITE}" != "1" ]; then
+    echo "---> ALLOW_NEW_SITE=0; skipping new-site (expecting pre-provisioned DB schema)."
+  else
   # Generate ADMIN_PASSWORD if not provided (template usually sets this)
   if [ -z "${ADMIN_PASSWORD:-}" ]; then
     ADMIN_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32 || true)"
@@ -223,6 +252,7 @@ else
   su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config host_name '$SITE_NAME'"
 
   echo "---> Site created. ID=$SITE_ID, host=$SITE_NAME, db=$SITE_DB_NAME"
+  fi
 fi
 
 # Always configure RQ ACL auth according to USE_RQ_AUTH (managed Redis -> 0)
