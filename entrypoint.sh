@@ -188,15 +188,17 @@ if [ ! -f "sites/apps.txt" ]; then
   chown frappe:frappe sites/apps.txt
 fi
 
-# Check if site exists (use SITE_ID folder)
-if [ ! -d "sites/$SITE_ID" ]; then
+# If site exists, use it. Otherwise, create it.
+if [ -d "sites/$SITE_ID" ]; then
+  echo "---> Site $SITE_ID already exists. Using it..."
+  su - frappe -c "cd /home/frappe/frappe-bench && bench use $SITE_ID"
+else
+  echo "---> Site $SITE_ID does not exist. Creating it..."
   # Generate ADMIN_PASSWORD if not provided (template usually sets this)
   if [ -z "${ADMIN_PASSWORD:-}" ]; then
     ADMIN_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32 || true)"
-    if [ -z "$ADMIN_PASSWORD" ]; then ADMIN_PASSWORD="Admin$(date +%s)"; fi
     echo "---> Generated ADMIN_PASSWORD for first run: $ADMIN_PASSWORD"
   fi
-  echo "---> Creating site $SITE_ID (host: $SITE_NAME)..."
   su - frappe -c "cd /home/frappe/frappe-bench && bench new-site '$SITE_ID' \
     --no-mariadb-socket \
     --db-type mariadb \
@@ -205,17 +207,15 @@ if [ ! -d "sites/$SITE_ID" ]; then
     --db-name '${SITE_DB_NAME:-$SITE_NAME}' \
     --db-root-username '${DB_USER}' \
     --db-root-password '${DB_PASSWORD}' \
-    --admin-password '${ADMIN_PASSWORD}'" frappe
+    --admin-password '${ADMIN_PASSWORD}'"
 
   echo "---> Installing ERPNext app..."
-  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' install-app erpnext" frappe
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' install-app erpnext"
 
   # Map external host to internal site id
-  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config host_name '$SITE_NAME'" frappe
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config host_name '$SITE_NAME'"
 
   echo "---> Site created. ID=$SITE_ID, host=$SITE_NAME, db=$SITE_DB_NAME"
-else
-  echo "---> Site already exists. ID=$SITE_ID (host=$SITE_NAME)"
 fi
 
 # Always configure RQ ACL auth according to USE_RQ_AUTH (managed Redis -> 0)
