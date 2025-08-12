@@ -1,6 +1,22 @@
 #!/bin/bash
 set -euo pipefail
 
+# URL-encode helper (for passwords in URLs)
+urlencode() {
+  local LC_ALL=C
+  local s="$1"
+  local out=""
+  local i c
+  for (( i=0; i<${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      [a-zA-Z0-9.~_-]) out+="$c" ;;
+      *) printf -v out '%s%%%02X' "$out" "'${c}" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
 # Defaults
 SITE_NAME=${SITE_NAME:-${RAILWAY_PUBLIC_DOMAIN:-erp.localhost}}
 PORT=${PORT:-8080}
@@ -157,14 +173,64 @@ fi
 
 # Set Redis URLs if provided
 if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
+  # Determine scheme and host:port from variables/URL
+  SCHEME="redis"
+  # Pre-encode password if present for safe URL building
+  REDIS_PASSWORD_ENC="${REDIS_PASSWORD:-}"
   if [ -n "${REDIS_PASSWORD:-}" ]; then
-    REDIS_URL_CFG="redis://:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT}"
-  else
-    REDIS_URL_CFG="redis://${REDIS_HOST}:${REDIS_PORT}"
+    REDIS_PASSWORD_ENC="$(urlencode "${REDIS_PASSWORD}")"
   fi
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_cache '$REDIS_URL_CFG'" frappe
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_queue '$REDIS_URL_CFG'" frappe
-  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config -g redis_socketio '$REDIS_URL_CFG'" frappe
+  if [ -n "${REDIS_URL:-}" ]; then
+    # Extract scheme and host:port
+    SCHEME="${REDIS_URL%%://*}"
+    rest="${REDIS_URL#*://}"
+    if [[ "$rest" == *"@"* ]]; then
+      # Credentials present; use as-is
+      REDIS_URL_CFG="${REDIS_URL}"
+    else
+      # No creds in URL; build using password if available
+      hostdb="${rest}"
+      hostport="${hostdb%%/*}"
+      H="${hostport%%:*}"
+      P_CAND="${hostport#*:}"
+      if [ "$P_CAND" = "$hostport" ] || [ -z "$P_CAND" ]; then P_CAND="${REDIS_PORT}"; fi
+      if [ -n "${REDIS_PASSWORD:-}" ]; then
+        REDIS_URL_CFG="${SCHEME}://:${REDIS_PASSWORD_ENC}@${H}:${P_CAND}"
+      else
+        REDIS_URL_CFG="${SCHEME}://${H}:${P_CAND}"
+      fi
+    fi
+  else
+    # No REDIS_URL; build from host/port
+    if [ -n "${REDIS_PASSWORD:-}" ]; then
+      REDIS_URL_CFG="${SCHEME}://:${REDIS_PASSWORD_ENC}@${REDIS_HOST}:${REDIS_PORT}"
+    else
+      REDIS_URL_CFG="${SCHEME}://${REDIS_HOST}:${REDIS_PORT}"
+    fi
+  fi
+  # Write to common_site_config (global) and site_config (site) for compatibility
+  su -s /bin/bash -c "bench set-config -g redis_cache '$REDIS_URL_CFG'" frappe
+  su -s /bin/bash -c "bench set-config -g redis_queue '$REDIS_URL_CFG'" frappe
+  su -s /bin/bash -c "bench set-config -g redis_socketio '$REDIS_URL_CFG'" frappe
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_cache '$REDIS_URL_CFG'" frappe
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_queue '$REDIS_URL_CFG'" frappe
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_socketio '$REDIS_URL_CFG'" frappe
+
+  # Also set per-queue keys that some setups read
+  su -s /bin/bash -c "bench set-config -g redis_queue_default '$REDIS_URL_CFG'" frappe || true
+  su -s /bin/bash -c "bench set-config -g redis_queue_short '$REDIS_URL_CFG'" frappe || true
+  su -s /bin/bash -c "bench set-config -g redis_queue_long '$REDIS_URL_CFG'" frappe || true
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_queue_default '$REDIS_URL_CFG'" frappe || true
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_queue_short '$REDIS_URL_CFG'" frappe || true
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config redis_queue_long '$REDIS_URL_CFG'" frappe || true
+
+  # Ensure RQ ACL auth is disabled when using external managed Redis
+  su -s /bin/bash -c "bench set-config -g use_rq_auth 0" frappe || true
+  su -s /bin/bash -c "bench --site '$SITE_NAME' set-config use_rq_auth 0" frappe || true
+
+  # Log masked URL for troubleshooting
+  REDIS_URL_MASKED="$(echo "$REDIS_URL_CFG" | sed -E 's#://[^@]*@#://***@#')"
+  echo "---> Configured Redis URL: $REDIS_URL_MASKED"
 fi
 
 # Ensure scheduler is enabled
