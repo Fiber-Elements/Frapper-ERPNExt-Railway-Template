@@ -6,13 +6,13 @@
       "builder": "DOCKERFILE",
       "env": {
         "SITE_NAME": "${{RAILWAY_PUBLIC_DOMAIN}}",
-        "DB_HOST": "${{services.db.host}}",
-        "DB_PORT": "${{services.db.port}}",
-        "DB_DATABASE": "${{services.db.database}}",
-        "DB_USER": "${{services.db.user}}",
-        "DB_PASSWORD": "${{services.db.password}}",
-        "REDIS_HOST": "${{services.redis.host}}",
-        "REDIS_PORT": "${{services.redis.port}}"
+        "DB_HOST": "${{db.MYSQLHOST}}",
+        "DB_PORT": "${{db.MYSQLPORT}}",
+        "DB_DATABASE": "${{db.MYSQLDATABASE}}",
+        "DB_USER": "${{db.MYSQLUSER}}",
+        "DB_PASSWORD": "${{db.MYSQLPASSWORD}}",
+        "REDIS_HOST": "${{redis.REDISHOST}}",
+        "REDIS_PORT": "${{redis.REDISPORT}}"
       }
     },
     {
