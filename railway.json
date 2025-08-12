@@ -6,11 +6,11 @@
       "builder": "DOCKERFILE",
       "env": {
         "SITE_NAME": "${{RAILWAY_PUBLIC_DOMAIN}}",
-        "MARIADB_HOST": "${{services.db.host}}",
-        "MARIADB_PORT": "${{services.db.port}}",
-        "MARIADB_DATABASE": "${{services.db.database}}",
-        "MARIADB_USER": "${{services.db.user}}",
-        "MARIADB_PASSWORD": "${{services.db.password}}",
+        "DB_HOST": "${{services.db.host}}",
+        "DB_PORT": "${{services.db.port}}",
+        "DB_DATABASE": "${{services.db.database}}",
+        "DB_USER": "${{services.db.user}}",
+        "DB_PASSWORD": "${{services.db.password}}",
         "REDIS_HOST": "${{services.redis.host}}",
         "REDIS_PORT": "${{services.redis.port}}"
       }

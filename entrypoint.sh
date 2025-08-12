@@ -2,7 +2,7 @@
 set -eo pipefail
 
 # Wait for Railway to provide the environment variables
-while [ -z "$MARIADB_HOST" ] || [ -z "$MARIADB_PORT" ] || [ -z "$ADMIN_PASSWORD" ]; do
+while [ -z "$DB_HOST" ] || [ -z "$DB_PORT" ] || [ -z "$ADMIN_PASSWORD" ]; do
   echo "Waiting for database and admin credentials to be available..."
   sleep 5
 done
@@ -16,11 +16,11 @@ if [ ! -d "sites/$SITE_NAME" ]; then
 
   bench new-site "$SITE_NAME" \
     --no-mariadb-socket \
-    --db-host "$MARIADB_HOST" \
-    --db-port "$MARIADB_PORT" \
-    --db-name "$MARIADB_DATABASE" \
-    --mariadb-root-username "$MARIADB_USER" \
-    --mariadb-root-password "$MARIADB_PASSWORD" \
+    --db-host "$DB_HOST" \
+    --db-port "$DB_PORT" \
+    --db-name "$DB_DATABASE" \
+    --mariadb-root-username "$DB_USER" \
+    --mariadb-root-password "$DB_PASSWORD" \
     --admin-password "$ADMIN_PASSWORD"
 
   echo "---> Installing ERPNext app..."
