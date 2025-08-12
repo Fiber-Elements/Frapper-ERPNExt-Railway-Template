@@ -195,28 +195,11 @@ if [ ! -f "sites/apps.txt" ]; then
   chown frappe:frappe sites/apps.txt
 fi
 
-# Ensure common_site_config.json exists for bench commands
-if [ ! -f "sites/common_site_config.json" ]; then
-  echo "---> common_site_config.json not found. Creating empty config..."
-  echo "{}" > sites/common_site_config.json
-  chown frappe:frappe sites/common_site_config.json
-fi
-
 # If site folder is missing and we are in attach-only mode (no DB creation),
 # create a minimal site structure and site_config.json pointing to external DB.
 if [ ! -d "sites/$SITE_ID" ] && [ "${ALLOW_NEW_SITE}" != "1" ]; then
-  echo "---> Attach mode: creating minimal site folder and site_config.json for $SITE_ID"
+  echo "---> Attach mode: creating minimal site folder for $SITE_ID"
   mkdir -p "sites/$SITE_ID"
-  cat > "sites/$SITE_ID/site_config.json" <<EOF
-{
-  "db_name": "${SITE_DB_NAME}",
-  "db_password": "${DB_PASSWORD}",
-  "db_type": "mariadb",
-  "db_host": "${DB_HOST}",
-  "db_port": ${DB_PORT:-3306},
-  "db_username": "${DB_USER}"
-}
-EOF
   echo "$SITE_ID" > sites/currentsite.txt
   chown -R frappe:frappe "sites/$SITE_ID" sites/currentsite.txt
 fi
@@ -224,6 +207,14 @@ fi
 # If site exists, use it. Otherwise, create it.
 if [ -d "sites/$SITE_ID" ]; then
   echo "---> Site $SITE_ID already exists. Using it..."
+
+  echo "---> Ensuring DB config is up-to-date in site_config.json"
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_type mariadb"
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_host '$DB_HOST'"
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_port '${DB_PORT:-3306}'"
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_name '$SITE_DB_NAME'"
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config db_password '$DB_PASSWORD'"
+
   su - frappe -c "cd /home/frappe/frappe-bench && bench use $SITE_ID"
 else
   echo "---> Site $SITE_ID does not exist. Creating it..."
