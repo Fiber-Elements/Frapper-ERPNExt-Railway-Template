@@ -1,17 +1,14 @@
 #!/bin/bash
 set -eo pipefail
 
-DB_HOST_ARG=$1
-DB_PORT_ARG=$2
-
-if [ -z "$DB_HOST_ARG" ] || [ -z "$DB_PORT_ARG" ]; then
-  echo "Error: Database host and port must be provided as arguments." >&2
-  exit 1
-fi
-
 # Wait for the database to be ready
-echo "---> Waiting for database at $DB_HOST_ARG:$DB_PORT_ARG..."
-while ! nc -z "$DB_HOST_ARG" "$DB_PORT_ARG"; do
+while [ -z "$DB_HOST" ] || [ -z "$DB_PORT" ]; do
+  echo "---> Waiting for DB_HOST and DB_PORT environment variables..."
+  sleep 2
+done
+
+echo "---> Waiting for database connection at $DB_HOST:$DB_PORT..."
+while ! nc -z "$DB_HOST" "$DB_PORT"; do
   sleep 1
 done
 echo "---> Database is ready."
@@ -25,8 +22,8 @@ if [ ! -d "sites/$SITE_NAME" ]; then
 
   bench new-site "$SITE_NAME" \
     --no-mariadb-socket \
-    --db-host "$DB_HOST_ARG" \
-    --db-port "$DB_PORT_ARG" \
+    --db-host "$DB_HOST" \
+    --db-port "$DB_PORT" \
     --db-name "$DB_DATABASE" \
     --mariadb-root-username "$DB_USER" \
     --mariadb-root-password "$DB_PASSWORD" \
