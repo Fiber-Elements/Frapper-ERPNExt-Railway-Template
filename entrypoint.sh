@@ -186,7 +186,7 @@ if [ ! -d "sites/$SITE_ID" ]; then
     echo "---> Generated ADMIN_PASSWORD for first run: $ADMIN_PASSWORD"
   fi
   echo "---> Creating site $SITE_ID (host: $SITE_NAME)..."
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench new-site '$SITE_ID' \
+  su - frappe -c "cd /home/frappe/frappe-bench && bench new-site '$SITE_ID' \
     --no-mariadb-socket \
     --db-type mariadb \
     --db-host '$DB_HOST' \
@@ -197,10 +197,10 @@ if [ ! -d "sites/$SITE_ID" ]; then
     --admin-password '${ADMIN_PASSWORD}'" frappe
 
   echo "---> Installing ERPNext app..."
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' install-app erpnext" frappe
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' install-app erpnext" frappe
 
   # Map external host to internal site id
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config host_name '$SITE_NAME'" frappe
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config host_name '$SITE_NAME'" frappe
 
   echo "---> Site created. ID=$SITE_ID, host=$SITE_NAME, db=$SITE_DB_NAME"
 else
@@ -208,8 +208,8 @@ else
 fi
 
 # Always configure RQ ACL auth according to USE_RQ_AUTH (managed Redis -> 0)
-su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench set-config -g use_rq_auth '${USE_RQ_AUTH}'" frappe || true
-su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config use_rq_auth '${USE_RQ_AUTH}'" frappe || true
+su - frappe -c "cd /home/frappe/frappe-bench && bench set-config -g use_rq_auth '${USE_RQ_AUTH}'" frappe || true
+su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config use_rq_auth '${USE_RQ_AUTH}'" frappe || true
 
 # Set Redis URLs if provided (host/port or direct URL)
 if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ] || [ -n "${REDIS_URL:-}" ]; then
@@ -257,24 +257,24 @@ if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ] || [ -n "${REDIS_URL:-}"
     fi
   fi
   # Write to common_site_config (global) and site_config (site) for compatibility
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench set-config -g redis_cache '$REDIS_URL_CFG'" frappe
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench set-config -g redis_queue '$REDIS_URL_CFG'" frappe
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench set-config -g redis_socketio '$REDIS_URL_CFG'" frappe
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_cache '$REDIS_URL_CFG'" frappe
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_queue '$REDIS_URL_CFG'" frappe
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_socketio '$REDIS_URL_CFG'" frappe
+  su - frappe -c "cd /home/frappe/frappe-bench && bench set-config -g redis_cache '$REDIS_URL_CFG'" frappe
+  su - frappe -c "cd /home/frappe/frappe-bench && bench set-config -g redis_queue '$REDIS_URL_CFG'" frappe
+  su - frappe -c "cd /home/frappe/frappe-bench && bench set-config -g redis_socketio '$REDIS_URL_CFG'" frappe
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_cache '$REDIS_URL_CFG'" frappe
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_queue '$REDIS_URL_CFG'" frappe
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_socketio '$REDIS_URL_CFG'" frappe
 
   # Also set per-queue keys that some setups read
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench set-config -g redis_queue_default '$REDIS_URL_CFG'" frappe || true
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench set-config -g redis_queue_short '$REDIS_URL_CFG'" frappe || true
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench set-config -g redis_queue_long '$REDIS_URL_CFG'" frappe || true
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_queue_default '$REDIS_URL_CFG'" frappe || true
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_queue_short '$REDIS_URL_CFG'" frappe || true
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_queue_long '$REDIS_URL_CFG'" frappe || true
+  su - frappe -c "cd /home/frappe/frappe-bench && bench set-config -g redis_queue_default '$REDIS_URL_CFG'" frappe || true
+  su - frappe -c "cd /home/frappe/frappe-bench && bench set-config -g redis_queue_short '$REDIS_URL_CFG'" frappe || true
+  su - frappe -c "cd /home/frappe/frappe-bench && bench set-config -g redis_queue_long '$REDIS_URL_CFG'" frappe || true
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_queue_default '$REDIS_URL_CFG'" frappe || true
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_queue_short '$REDIS_URL_CFG'" frappe || true
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config redis_queue_long '$REDIS_URL_CFG'" frappe || true
 
   # Configure RQ ACL auth as requested (default: 0 for managed Redis)
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench set-config -g use_rq_auth '${USE_RQ_AUTH}'" frappe || true
-  su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config use_rq_auth '${USE_RQ_AUTH}'" frappe || true
+  su - frappe -c "cd /home/frappe/frappe-bench && bench set-config -g use_rq_auth '${USE_RQ_AUTH}'" frappe || true
+  su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' set-config use_rq_auth '${USE_RQ_AUTH}'" frappe || true
 
   # Log masked URL for troubleshooting
   REDIS_URL_MASKED="$(echo "$REDIS_URL_CFG" | sed -E 's#://[^@]*@#://***@#')"
@@ -282,7 +282,7 @@ if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ] || [ -n "${REDIS_URL:-}"
 fi
 
 # Ensure scheduler is enabled
-su -s /bin/bash -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' enable-scheduler" frappe || true
+su - frappe -c "cd /home/frappe/frappe-bench && bench --site '$SITE_ID' enable-scheduler" frappe || true
 
 echo "---> Launching Supervisor"
 exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
