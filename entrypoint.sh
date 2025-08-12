@@ -1,10 +1,17 @@
 #!/bin/bash
 set -eo pipefail
 
+DB_HOST_ARG=$1
+DB_PORT_ARG=$2
+
+if [ -z "$DB_HOST_ARG" ] || [ -z "$DB_PORT_ARG" ]; then
+  echo "Error: Database host and port must be provided as arguments." >&2
+  exit 1
+fi
+
 # Wait for the database to be ready
-# We use nc (netcat) to check if the port is open
-echo "---> Waiting for database to be ready..."
-while ! nc -z $DB_HOST $DB_PORT; do
+echo "---> Waiting for database at $DB_HOST_ARG:$DB_PORT_ARG..."
+while ! nc -z "$DB_HOST_ARG" "$DB_PORT_ARG"; do
   sleep 1
 done
 echo "---> Database is ready."
@@ -18,8 +25,8 @@ if [ ! -d "sites/$SITE_NAME" ]; then
 
   bench new-site "$SITE_NAME" \
     --no-mariadb-socket \
-    --db-host "$DB_HOST" \
-    --db-port "$DB_PORT" \
+    --db-host "$DB_HOST_ARG" \
+    --db-port "$DB_PORT_ARG" \
     --db-name "$DB_DATABASE" \
     --mariadb-root-username "$DB_USER" \
     --mariadb-root-password "$DB_PASSWORD" \
@@ -38,7 +45,5 @@ bench --site "$SITE_NAME" set-config -g redis_cache "redis://$REDIS_HOST:$REDIS_
 bench --site "$SITE_NAME" set-config -g redis_queue "redis://$REDIS_HOST:$REDIS_PORT"
 bench --site "$SITE_NAME" set-config -g redis_socketio "redis://$REDIS_HOST:$REDIS_PORT"
 
-echo "---> Starting bench..."
-
-# Start the Frappe services
+echo "---> Starting Frappe Bench..."
 bench start
