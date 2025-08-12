@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
+# Set core defaults early so SITE_ID derives from a stable host value
+# Prefer Railway-provided domain, fallback to a local default
+SITE_NAME=${SITE_NAME:-${RAILWAY_PUBLIC_DOMAIN:-erp.localhost}}
+PORT=${PORT:-8080}
+
 # Derive a safe SITE_ID (folder/db user base) and SITE_DB_NAME (<=32 for MySQL user)
 if [ -z "${SITE_ID:-}" ]; then
   SAFE_ID=$(echo "$SITE_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g' | sed -E 's/^_+|_+$//g')
@@ -35,9 +40,9 @@ urlencode() {
   printf '%s' "$out"
 }
 
-# Defaults
-SITE_NAME=${SITE_NAME:-${RAILWAY_PUBLIC_DOMAIN:-erp.localhost}}
-PORT=${PORT:-8080}
+# Defaults (already set early; keep here for readability)
+SITE_NAME=${SITE_NAME}
+PORT=${PORT}
 
 # Map Railway plugin env vars if DB_* not set
 # MySQL/MariaDB plugin variables
@@ -51,6 +56,11 @@ DB_PASSWORD=${DB_PASSWORD:-${MYSQLPASSWORD:-${MARIADBPASSWORD:-}}}
 REDIS_HOST=${REDIS_HOST:-${REDISHOST:-}}
 REDIS_PORT=${REDIS_PORT:-${REDISPORT:-6379}}
 REDIS_PASSWORD=${REDIS_PASSWORD:-${REDISPASSWORD:-}}
+REDIS_USERNAME=${REDIS_USERNAME:-${REDISUSER:-}}
+
+# Toggle Redis RQ ACL auth (managed Redis typically doesn't support ACL users)
+# 0 = disabled (default/recommended for managed Redis), 1 = enabled (requires bench create-rq-users on self-managed Redis)
+USE_RQ_AUTH=${USE_RQ_AUTH:-0}
 
 # URL fallbacks: DATABASE_URL / MYSQL_URL
 if [ -z "${DB_HOST:-}" ] && [ -n "${DATABASE_URL:-${MYSQL_URL:-}}" ]; then
@@ -72,6 +82,11 @@ if [ -z "${DB_HOST:-}" ] && [ -n "${DATABASE_URL:-${MYSQL_URL:-}}" ]; then
   DB_PORT_CAND="${hostport#*:}"
   if [ "$DB_PORT_CAND" = "$hostport" ] || [ -z "$DB_PORT_CAND" ]; then DB_PORT_CAND=3306; fi
   DB_PORT=${DB_PORT:-"$DB_PORT_CAND"}
+fi
+
+# Prefer REDIS_URL; fall back to REDIS_TLS_URL if provided by the platform
+if [ -z "${REDIS_URL:-}" ] && [ -n "${REDIS_TLS_URL:-}" ]; then
+  REDIS_URL="${REDIS_TLS_URL}"
 fi
 
 # URL fallback: REDIS_URL
@@ -192,8 +207,8 @@ else
   echo "---> Site already exists. ID=$SITE_ID (host=$SITE_NAME)"
 fi
 
-# Set Redis URLs if provided
-if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
+# Set Redis URLs if provided (host/port or direct URL)
+if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ] || [ -n "${REDIS_URL:-}" ]; then
   # Determine scheme and host:port from variables/URL
   SCHEME="redis"
   # Pre-encode password if present for safe URL building
@@ -216,7 +231,11 @@ if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
       P_CAND="${hostport#*:}"
       if [ "$P_CAND" = "$hostport" ] || [ -z "$P_CAND" ]; then P_CAND="${REDIS_PORT}"; fi
       if [ -n "${REDIS_PASSWORD:-}" ]; then
-        REDIS_URL_CFG="${SCHEME}://:${REDIS_PASSWORD_ENC}@${H}:${P_CAND}"
+        if [ -n "${REDIS_USERNAME:-}" ]; then
+          REDIS_URL_CFG="${SCHEME}://${REDIS_USERNAME}:${REDIS_PASSWORD_ENC}@${H}:${P_CAND}"
+        else
+          REDIS_URL_CFG="${SCHEME}://:${REDIS_PASSWORD_ENC}@${H}:${P_CAND}"
+        fi
       else
         REDIS_URL_CFG="${SCHEME}://${H}:${P_CAND}"
       fi
@@ -224,7 +243,11 @@ if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
   else
     # No REDIS_URL; build from host/port
     if [ -n "${REDIS_PASSWORD:-}" ]; then
-      REDIS_URL_CFG="${SCHEME}://:${REDIS_PASSWORD_ENC}@${REDIS_HOST}:${REDIS_PORT}"
+      if [ -n "${REDIS_USERNAME:-}" ]; then
+        REDIS_URL_CFG="${SCHEME}://${REDIS_USERNAME}:${REDIS_PASSWORD_ENC}@${REDIS_HOST}:${REDIS_PORT}"
+      else
+        REDIS_URL_CFG="${SCHEME}://:${REDIS_PASSWORD_ENC}@${REDIS_HOST}:${REDIS_PORT}"
+      fi
     else
       REDIS_URL_CFG="${SCHEME}://${REDIS_HOST}:${REDIS_PORT}"
     fi
@@ -245,9 +268,9 @@ if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
   su -s /bin/bash -c "bench --site '$SITE_ID' set-config redis_queue_short '$REDIS_URL_CFG'" frappe || true
   su -s /bin/bash -c "bench --site '$SITE_ID' set-config redis_queue_long '$REDIS_URL_CFG'" frappe || true
 
-  # Ensure RQ ACL auth is disabled when using external managed Redis
-  su -s /bin/bash -c "bench set-config -g use_rq_auth 0" frappe || true
-  su -s /bin/bash -c "bench --site '$SITE_ID' set-config use_rq_auth 0" frappe || true
+  # Configure RQ ACL auth as requested (default: 0 for managed Redis)
+  su -s /bin/bash -c "bench set-config -g use_rq_auth '${USE_RQ_AUTH}'" frappe || true
+  su -s /bin/bash -c "bench --site '$SITE_ID' set-config use_rq_auth '${USE_RQ_AUTH}'" frappe || true
 
   # Log masked URL for troubleshooting
   REDIS_URL_MASKED="$(echo "$REDIS_URL_CFG" | sed -E 's#://[^@]*@#://***@#')"
@@ -255,7 +278,7 @@ if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
 fi
 
 # Ensure scheduler is enabled
-su -s /bin/bash -c "bench --site '$SITE_NAME' enable-scheduler" frappe || true
+su -s /bin/bash -c "bench --site '$SITE_ID' enable-scheduler" frappe || true
 
 echo "---> Launching Supervisor"
 exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
