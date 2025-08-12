@@ -5,16 +5,6 @@ FROM frappe/erpnext:${FRAPPE_VERSION}
 # Set the user to frappe to ensure correct permissions
 USER frappe
 
-# Argument to receive the Base64 encoded apps.json
+# Argument to receive the Base64 encoded apps.json. The base image's entrypoint
+# will handle the installation of apps listed in this JSON.
 ARG APPS_JSON_BASE64
-
-# Decode the Base64 string and write it to apps.json in the user's home directory
-# Also, install the apps using bench
-RUN if [ -n "$APPS_JSON_BASE64" ]; then \
-        echo "$APPS_JSON_BASE64" | base64 -d > /home/frappe/frappe-bench/apps.json && \
-        bench get-app --resolve-deps && \
-        bench install-app erpnext; \
-    fi
-
-# Switch back to the root user
-USER root
