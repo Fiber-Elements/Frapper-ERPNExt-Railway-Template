@@ -158,7 +158,7 @@ if [ ! -d "sites/$SITE_NAME" ]; then
     --db-type mariadb \
     --db-host '$DB_HOST' \
     --db-port '$DB_PORT' \
-    --db-name '${DB_DATABASE:-$SITE_NAME}' \
+    --db-name '${SITE_DB_NAME:-$SITE_NAME}' \
     --db-root-username '${DB_USER}' \
     --db-root-password '${DB_PASSWORD}' \
     --admin-password '${ADMIN_PASSWORD}'" frappe
