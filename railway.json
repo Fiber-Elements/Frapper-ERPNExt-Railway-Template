@@ -3,7 +3,7 @@
   "services": [
     {
       "name": "erpnext",
-      "image": "ghcr.io/${{RAILWAY_GIT_REPO_OWNER}}/${{RAILWAY_GIT_REPO_NAME}}:latest",
+      "image": "ghcr.io/fiber-elements/frapper-erpnext-railway-template:latest",
       "ports": [
         {
           "port": 8000,
