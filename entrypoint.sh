@@ -17,6 +17,44 @@ DB_PASSWORD=${DB_PASSWORD:-${MYSQLPASSWORD:-${MARIADBPASSWORD:-}}}
 REDIS_HOST=${REDIS_HOST:-${REDISHOST:-}}
 REDIS_PORT=${REDIS_PORT:-${REDISPORT:-6379}}
 
+# URL fallbacks: DATABASE_URL / MYSQL_URL
+if [ -z "${DB_HOST:-}" ] && [ -n "${DATABASE_URL:-${MYSQL_URL:-}}" ]; then
+  DB_URL="${DATABASE_URL:-${MYSQL_URL:-}}"
+  rest="${DB_URL#*://}"
+  creds="${rest%@*}"
+  hostpath="${rest#*@}"
+  # username:password
+  if [ -n "$creds" ] && [ "$creds" != "$rest" ]; then
+    DB_USER=${DB_USER:-"${creds%%:*}"}
+    DB_PASSWORD_TMP="${creds#*:}"
+    DB_PASSWORD=${DB_PASSWORD:-"${DB_PASSWORD_TMP%%@*}"}
+  fi
+  hostport="${hostpath%%/*}"
+  DB_DATABASE_TMP="${hostpath#*/}"
+  DB_DATABASE_TMP="${DB_DATABASE_TMP%%\?*}"
+  DB_DATABASE=${DB_DATABASE:-"$DB_DATABASE_TMP"}
+  DB_HOST=${DB_HOST:-"${hostport%%:*}"}
+  DB_PORT_CAND="${hostport#*:}"
+  if [ "$DB_PORT_CAND" = "$hostport" ] || [ -z "$DB_PORT_CAND" ]; then DB_PORT_CAND=3306; fi
+  DB_PORT=${DB_PORT:-"$DB_PORT_CAND"}
+fi
+
+# URL fallback: REDIS_URL
+if [ -z "${REDIS_HOST:-}" ] && [ -n "${REDIS_URL:-}" ]; then
+  RU="${REDIS_URL}"
+  rest="${RU#*://}"
+  if [[ "$rest" == *"@"* ]]; then
+    hostdb="${rest#*@}"
+  else
+    hostdb="$rest"
+  fi
+  hostport="${hostdb%%/*}"
+  REDIS_HOST=${REDIS_HOST:-"${hostport%%:*}"}
+  REDIS_PORT_CAND="${hostport#*:}"
+  if [ "$REDIS_PORT_CAND" = "$hostport" ] || [ -z "$REDIS_PORT_CAND" ]; then REDIS_PORT_CAND=6379; fi
+  REDIS_PORT=${REDIS_PORT:-"$REDIS_PORT_CAND"}
+fi
+
 echo "---> Using SITE_NAME=$SITE_NAME"
 echo "---> Exposing Nginx on PORT=$PORT"
 
@@ -31,8 +69,19 @@ fi
 rm -f /etc/nginx/sites-enabled/default || true
 
 # Wait for the database to be ready
+ATTEMPTS=0
+until [ -n "${DB_HOST:-}" ] && [ -n "${DB_PORT:-}" ] || [ "$ATTEMPTS" -ge 10 ]; do
+  # Re-evaluate mappings in case plugin vars are late
+  DB_HOST=${DB_HOST:-${MYSQLHOST:-${MARIADBHOST:-}}}
+  DB_PORT=${DB_PORT:-${MYSQLPORT:-${MARIADBPORT:-3306}}}
+  ATTEMPTS=$((ATTEMPTS+1))
+  [ -n "${DB_HOST:-}" ] && [ -n "${DB_PORT:-}" ] && break
+  echo "---> Waiting for DB env vars to be present (attempt $ATTEMPTS/10)..."
+  sleep 1
+done
 if [ -z "${DB_HOST:-}" ] || [ -z "${DB_PORT:-}" ]; then
-  echo "---> ERROR: DB_HOST and DB_PORT must be set"
+  echo "---> ERROR: DB_HOST and/or DB_PORT not set."
+  echo "---> Diagnostics: MYSQLHOST='${MYSQLHOST:-}', MYSQLPORT='${MYSQLPORT:-}', MARIADBHOST='${MARIADBHOST:-}', MARIADBPORT='${MARIADBPORT:-}', DATABASE_URL='${DATABASE_URL:-}', MYSQL_URL='${MYSQL_URL:-}'"
   exit 1
 fi
 
@@ -55,6 +104,12 @@ cd /home/frappe/frappe-bench
 
 # Create site if not exists
 if [ ! -d "sites/$SITE_NAME" ]; then
+  # Generate ADMIN_PASSWORD if not provided (template usually sets this)
+  if [ -z "${ADMIN_PASSWORD:-}" ]; then
+    ADMIN_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32 || true)"
+    if [ -z "$ADMIN_PASSWORD" ]; then ADMIN_PASSWORD="Admin$(date +%s)"; fi
+    echo "---> Generated ADMIN_PASSWORD for first run: $ADMIN_PASSWORD"
+  fi
   echo "---> Creating site $SITE_NAME..."
   su -s /bin/bash -c "bench new-site '$SITE_NAME' \
     --no-mariadb-socket \
