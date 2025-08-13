@@ -1,0 +1,22 @@
+# Local Environment Files
+.env
+*.env.local
+
+# Frappe Docker clone
+# This is treated as a dependency and should be cloned by users, not committed.
+/frappe_docker/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# OS-specific files
+.DS_Store
+Thumbs.db
