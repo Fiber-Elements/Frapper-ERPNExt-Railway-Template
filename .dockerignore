@@ -1,0 +1,56 @@
+# flyctl launch added from .gitignore
+# Local Environment Files
+**\.env
+**\*.env.local
+
+# Frappe Docker clone
+# This is treated as a dependency and should be cloned by users, not committed.
+frappe_docker
+
+# Python
+**\__pycache__
+**\*.pyc
+**\*.pyo
+**\*.pyd
+**\.Python
+**\env
+**\venv
+**\pip-log.txt
+**\pip-delete-this-directory.txt
+
+# OS-specific files
+**\.DS_Store
+**\Thumbs.db
+
+# flyctl launch added from frappe_docker\.gitignore
+# Environment Variables
+frappe_docker\**\.env
+
+# mounted volume
+frappe_docker\**\sites
+
+frappe_docker\**\development\*
+!frappe_docker\**\development\README.md
+!frappe_docker\**\development\installer.py
+!frappe_docker\**\development\apps-example.json
+!frappe_docker\**\development\vscode-example
+
+# Pycharm
+frappe_docker\**\.idea
+
+# VS Code
+frappe_docker\**\.vscode\**
+!frappe_docker\**\.vscode\extensions.json
+
+# VS Code devcontainer
+frappe_docker\**\.devcontainer
+frappe_docker\**\*.code-workspace
+
+# Python
+frappe_docker\**\*.pyc
+frappe_docker\**\__pycache__
+frappe_docker\**\venv
+
+# NodeJS
+frappe_docker\**\node_modules
+fly.toml
