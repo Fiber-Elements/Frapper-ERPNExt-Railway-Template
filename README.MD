@@ -63,7 +63,7 @@ Production-ready automation to build and deploy Frappe/ERPNext to Fly.io, plus a
 - `Dockerfile` — container image builder (pinned versions)
 - `resources/` — entrypoints, templates, `apps.txt`, `Procfile`
 - `run-local.ps1` — local Docker Compose helper (creates `.env` if missing)
-- Cloud Run is deployed using `gcloud` (no cloudbuild.yaml required). See "Google Cloud Run Deployment" below.
+- `deploy-gcp.ps1` — Automated GCP deployment (Cloud Run, Cloud SQL, Memorystore for Redis).
 
 ---
 
@@ -126,38 +126,28 @@ Notes:
 - gcloud CLI installed and configured: `gcloud auth login && gcloud config set project <PROJECT_ID>`
 - Optional: Artifact Registry repository (or use GCR)
 
-### Build and deploy (example using GCR)
+### Automated Deploy
 
 ```bash
-# From repo root
-gcloud builds submit --tag gcr.io/<PROJECT_ID>/erpnext:latest
+# From repo root, run the deployment script:
+# To deploy to an EXISTING project:
+./deploy-gcp.ps1 -ProjectId 'your-gcp-project-id' -Region 'your-gcp-region'
 
-# Deploy to Cloud Run (fully managed)
-gcloud run deploy erpnext \
-  --image gcr.io/<PROJECT_ID>/erpnext:latest \
-  --platform managed \
-  --region <REGION> \
-  --allow-unauthenticated \
-  --set-env-vars PORT=8080 \
-  --set-env-vars FRAPPE_SITE_NAME_HEADER=<your-hostname-or-run.app-host> \
-  --set-env-vars DATABASE_URL="<mysql|postgres>://user:pass@host:port/dbname" \
-  --set-env-vars REDIS_QUEUE_URL="redis://:pass@host:port" \
-  --set-env-vars REDIS_CACHE_URL="redis://:pass@host:port" \
-  --set-env-vars AUTO_BOOTSTRAP=1 \
-  --set-env-vars BOOTSTRAP_SITE=<site_name> \
-  --set-env-vars DEFAULT_SITE=<site_name> \
-  --set-env-vars BOOTSTRAP_ADMIN_PASSWORD=<strong_password>
-
-# Increase request/startup timeout if first boot is slow
-gcloud run services update erpnext --region <REGION> --timeout 300
+# To CREATE a new project and deploy to it:
+./deploy-gcp.ps1 -NewProjectID 'a-new-unique-project-id' -BillingAccountID 'YOUR-BILLING-ACCT-ID' -Region 'your-gcp-region'
 ```
 
 Notes:
 
-- The image binds to the Cloud Run-provided `PORT` automatically (defaults to 8080 if not set).
-- `AUTO_BOOTSTRAP=1` attempts to create the site on first boot using the DB credentials from `DATABASE_URL`.
-- Set `DEFAULT_SITE` to the site name to serve when the Host header doesn't match a site (Cloud Run hostnames are long); this writes `sites/currentsite.txt`.
-- Cloud Run has an ephemeral filesystem; persistent volumes for `sites/` are not supported. For production, consider GKE or a VM.
+- The script can either use an existing GCP project or create a new one for you.
+- It is idempotent. It will check for existing resources (VPC Connector, Cloud SQL, Redis) before creating new ones.
+- It automatically provisions:
+  - A VPC Connector for secure, private communication.
+  - A Cloud SQL for MySQL instance.
+  - A Memorystore for Redis instance.
+- It then builds the Docker image and deploys it to Cloud Run, injecting all necessary environment variables (`DATABASE_URL`, Redis URLs, etc.) automatically.
+- The script will output the final service URL and the generated Administrator password.
+- **This is a one-command deployment for the entire stack.**
 
 ---
 
@@ -230,9 +220,8 @@ If you fork/rename, update `fly.toml` `app`/`primary_region` accordingly.
 
 ## Command Cheat Sheet
 
-- Build (GCR): `gcloud builds submit --tag gcr.io/<PROJECT_ID>/erpnext:latest`
-- Deploy: `gcloud run deploy erpnext --image gcr.io/<PROJECT_ID>/erpnext:latest --region <REGION> --allow-unauthenticated`
-- Logs (CLI): `gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="erpnext"' --limit=100`
+- Deploy to GCP: `./deploy-gcp.ps1 -ProjectId <id> -Region <region>`
+- Logs (CLI): `gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="erpnext-app"' --limit=100`
 - Local up/down/logs/ps: `./run-local.ps1 up|down|logs|ps`
 - Set admin password (Cloud Run exec into a debug container or use bench inside a local container with same DB):
 
