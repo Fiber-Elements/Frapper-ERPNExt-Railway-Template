@@ -104,18 +104,27 @@ try {
 
   # Build compose args; only use override if port != 8080
   $ComposeArgsBase = @('-f', $ComposeFile)
-  $UsingOverride = $false
-  if ($ChosenPort -ne 8080) {
-    $OverridePath = Join-Path $env:TEMP ("frappe_override_" + [Guid]::NewGuid().ToString('N') + '.yml')
-    @"
+  # Always add a temporary override to ensure stable startup ordering and optional port change.
+  # This keeps the cloned frappe_docker sources untouched.
+  $OverridePath = Join-Path $env:TEMP ("frappe_override_" + [Guid]::NewGuid().ToString('N') + '.yml')
+  @"
 services:
   frontend:
     ports:
-      - "$ChosenPort:8080"
+      - "${ChosenPort}:8080"
+  websocket:
+    depends_on:
+      - redis-queue
+    command:
+      - bash
+      - -lc
+      - |
+        wait-for-it -t 120 redis-queue:6379;
+        node /home/frappe/frappe-bench/apps/frappe/socketio.js
 "@ | Set-Content -Encoding UTF8 -Path $OverridePath
-    $ComposeArgsBase += @('-f', $OverridePath)
-    $UsingOverride = $true
-  }
+  $ComposeArgsBase += @('-f', $OverridePath)
+  $UsingOverride = $true
+  Write-Info "Using override file: $OverridePath (port ${ChosenPort})"
 
   # Pull images first (faster subsequent runs)
   Write-Info 'Pulling images (if needed)...'
