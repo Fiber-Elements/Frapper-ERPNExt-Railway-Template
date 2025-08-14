@@ -1,0 +1,47 @@
+# Environment files
+.env
+.env.*
+!.env.template
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+
+# Node / JS
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Editors / IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs / temp
+*.log
+logs/
+*.tmp
+*.temp
+
+# Build artifacts
+build/
+dist/
+
+# Docker Compose overrides (optional local-only files)
+docker-compose.override.yml
+compose.override.yml
+
+# Nested Git repos (if any are cloned locally)
+**/.git/
