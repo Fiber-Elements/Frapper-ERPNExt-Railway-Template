@@ -43,5 +43,8 @@ dist/
 docker-compose.override.yml
 compose.override.yml
 
+# Frappe docker sources (cloned by script)
+frappe_docker/
+
 # Nested Git repos (if any are cloned locally)
 **/.git/
