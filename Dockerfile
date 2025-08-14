@@ -128,6 +128,8 @@ USER frappe
 RUN echo "echo \"Commands restricted in prodution container, Read FAQ before you proceed: https://frappe.io/ctr-faq\"" >> ~/.bashrc
 
 COPY --from=builder --chown=frappe:frappe /home/frappe/frappe-bench /home/frappe/frappe-bench
+COPY resources/apps.txt /home/frappe/frappe-bench/apps.txt
+COPY resources/Procfile /home/frappe/frappe-bench/Procfile
 
 WORKDIR /home/frappe/frappe-bench
 

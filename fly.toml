@@ -17,21 +17,22 @@ primary_region = 'iad'
   SOCKETIO = 'http://localhost:9000'
 
 [processes]
-  app = 'bench start'
-  queue-long = 'bench worker --queue long'
-  queue-short = 'bench worker --queue short'
-  scheduler = 'bench schedule'
-  websocket = 'node /home/frappe/frappe-bench/apps/frappe/socketio.js'
+  app = "/home/frappe/frappe-bench/env/bin/gunicorn --bind 0.0.0.0:8000 --threads 2 --workers 2 --timeout 120 --worker-class gthread --worker-tmp-dir=/dev/shm --preload frappe.app:application"
+  websocket = "node /home/frappe/frappe-bench/apps/frappe/socketio.js"
+  scheduler = "bench schedule"
+  queue-short = "bench worker --queue short"
+  queue-long = "bench worker --queue long"
+  queue-default = "bench worker --queue default"
 
 [[mounts]]
   source = 'sites_volume'
   destination = '/home/frappe/frappe-bench/sites'
-  processes = ['app', 'queue-short', 'queue-long', 'scheduler']
+  processes = ['app', 'queue-short', 'queue-long', 'queue-default', 'scheduler', 'websocket']
 
 
 
 [http_service]
-  internal_port = 8080
+  internal_port = 8000
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true

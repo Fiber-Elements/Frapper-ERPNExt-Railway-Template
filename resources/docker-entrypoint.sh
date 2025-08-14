@@ -27,7 +27,26 @@ fi
 if [ -n "$REDIS_QUEUE_URL" ]; then
     export REDIS_QUEUE="$REDIS_QUEUE_URL"
     echo "Redis queue configured from REDIS_QUEUE_URL secret."
+    # Use the same Redis for socketio unless a specific one is provided
+    if [ -z "$REDIS_SOCKETIO" ]; then
+        export REDIS_SOCKETIO="$REDIS_QUEUE_URL"
+        echo "Redis socketio configured from REDIS_QUEUE_URL secret."
+    fi
 fi
+
+# Ensure apps.txt exists on the mounted sites volume, copy a default if missing
+SITES_DIR="/home/frappe/frappe-bench/sites"
+if [ ! -f "$SITES_DIR/apps.txt" ]; then
+    if [ -f "/home/frappe/frappe-bench/apps.txt" ]; then
+        cp "/home/frappe/frappe-bench/apps.txt" "$SITES_DIR/apps.txt"
+        echo "Copied default apps.txt into sites volume."
+    else
+        echo "Warning: apps.txt not found in image; Frappe may fail to start."
+    fi
+fi
+
+# Switch to the sites directory so Frappe resolves relative paths correctly
+cd "$SITES_DIR"
 
 # Execute the command passed to the script
 exec "$@"
