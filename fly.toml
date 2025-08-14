@@ -13,12 +13,11 @@ primary_region = 'iad'
   DB_HOST = 'your-fly-db-host.internal'
   DB_PORT = '5432'
   FRAPPE_SITE_NAME_HEADER = 'your-app-name.fly.dev'
-  REDIS_CACHE = 'redis://your-fly-redis-host:6379/0'
-  REDIS_QUEUE = 'redis://your-fly-redis-host:6379/1'
+
   SOCKETIO = 'http://localhost:9000'
 
 [processes]
-  app = '/usr/local/bin/docker-entrypoint.sh'
+  app = 'bench start'
   queue-long = 'bench worker --queue long'
   queue-short = 'bench worker --queue short'
   scheduler = 'bench schedule'
@@ -29,10 +28,7 @@ primary_region = 'iad'
   destination = '/home/frappe/frappe-bench/sites'
   processes = ['app', 'queue-short', 'queue-long', 'scheduler']
 
-[[mounts]]
-  source = 'logs_volume'
-  destination = '/home/frappe/frappe-bench/logs'
-  processes = ['app', 'queue-short', 'queue-long', 'scheduler']
+
 
 [http_service]
   internal_port = 8080

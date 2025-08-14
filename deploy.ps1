@@ -71,13 +71,24 @@ if (-not (fly redis list | Select-String -Pattern "^$RedisAppName\s")) {
     Write-Host "Redis instance '$RedisAppName' already exists."
 }
 Write-Host "Attaching Redis to $AppName..." -ForegroundColor Cyan
-$RedisStatus = fly redis status $RedisAppName
-$RedisUrl = ($RedisStatus | Select-String -Pattern "Private URL") -replace '.*Private URL = ', ''
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: Failed to get Redis URL." -ForegroundColor Red
+
+# Get Redis URL and set it as secrets for cache and queue
+Write-Host "Setting Redis secrets..."
+$RedisStatusOutput = fly redis status $RedisAppName
+$RedisUrl = ($RedisStatusOutput | Select-String -Pattern "Private URL" | ForEach-Object { $_.ToString().Split(':')[1].Trim() + ':' + $_.ToString().Split(':')[2].Trim() }).Trim()
+
+if ($RedisUrl) {
+    # The output from the command includes the protocol, so we need to handle it carefully.
+    $RedisUrl = "redis:" + $RedisUrl
+    # Frappe uses different logical databases on the same Redis instance
+    $RedisCacheUrl = "$($RedisUrl)/0"
+    $RedisQueueUrl = "$($RedisUrl)/1"
+    fly secrets set "REDIS_CACHE_URL=$RedisCacheUrl" "REDIS_QUEUE_URL=$RedisQueueUrl" --app $AppName
+    Write-Host "Redis secrets for cache and queue have been set."
+} else {
+    Write-Host "Could not retrieve Redis URL for '$RedisAppName'. Check if the Redis instance exists and you have access." -ForegroundColor Red
     exit 1
 }
-fly secrets set REDIS_URL="$RedisUrl" -a $AppName
 
 # Step 6: Create volumes if they don't exist
 if (-not (fly volumes list -a $AppName | Select-String -Pattern "^sites_volume")) {
@@ -85,13 +96,6 @@ if (-not (fly volumes list -a $AppName | Select-String -Pattern "^sites_volume")
     fly volumes create sites_volume --size $VolumeSize --app $AppName --region $Region --yes
 } else {
     Write-Host "'sites_volume' already exists."
-}
-
-if (-not (fly volumes list -a $AppName | Select-String -Pattern "^logs_volume")) {
-    Write-Host "Creating 'logs_volume'..." -ForegroundColor Cyan
-    fly volumes create logs_volume --size 1 --app $AppName --region $Region --yes
-} else {
-    Write-Host "'logs_volume' already exists."
 }
 
 # Step 7: Deploy the application
