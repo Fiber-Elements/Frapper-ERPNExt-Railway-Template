@@ -18,21 +18,15 @@ if [ -n "$DATABASE_URL" ]; then
     fi
 fi
 
-# Parse REDIS_URL and export individual variables
-if [ -n "$REDIS_URL" ]; then
-    # Format: redis://:password@host:port/db
-    if [[ $REDIS_URL =~ redis://:([^@]+)@([^:]+):([0-9]+)/([0-9]+) ]]; then
-        export REDIS_PASSWORD="${BASH_REMATCH[1]}"
-        export REDIS_HOST="${BASH_REMATCH[2]}"
-        export REDIS_PORT="${BASH_REMATCH[3]}"
-        export REDIS_DB="${BASH_REMATCH[4]}"
-        export REDIS_CACHE="redis://${REDIS_HOST}:${REDIS_PORT}/${REDIS_DB}"
-        export REDIS_QUEUE="redis://${REDIS_HOST}:${REDIS_PORT}/${REDIS_DB}"
-        echo "Redis variables exported from REDIS_URL."
-    else
-        echo "Failed to parse REDIS_URL."
-        exit 1
-    fi
+# Set Redis connection variables for Frappe from secrets
+if [ -n "$REDIS_CACHE_URL" ]; then
+    export REDIS_CACHE="$REDIS_CACHE_URL"
+    echo "Redis cache configured from REDIS_CACHE_URL secret."
+fi
+
+if [ -n "$REDIS_QUEUE_URL" ]; then
+    export REDIS_QUEUE="$REDIS_QUEUE_URL"
+    echo "Redis queue configured from REDIS_QUEUE_URL secret."
 fi
 
 # Execute the command passed to the script
