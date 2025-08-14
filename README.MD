@@ -1,4 +1,4 @@
-# **A Comprehensive Guide to Self-Hosting Frappe ERPNext with Docker and Fly.io**
+# **Frappe ERPNext with Docker (Local) and Google Cloud Run**
 
 ## **Local Quick Start Guide**
 
@@ -60,12 +60,10 @@ Production-ready automation to build and deploy Frappe/ERPNext to Fly.io, plus a
 
 ## Key Files
 
-- `Dockerfile` — production image builder (pinned versions)
-- `fly.toml` — Fly.io app config and process definitions
+- `Dockerfile` — container image builder (pinned versions)
 - `resources/` — entrypoints, templates, `apps.txt`, `Procfile`
-- `deploy.ps1` — automated Fly.io provision + deploy (app, Postgres, Redis, volume, secrets)
-- `teardown.ps1` — destroy app + managed Postgres + Redis
 - `run-local.ps1` — local Docker Compose helper (creates `.env` if missing)
+- Cloud Run is deployed using `gcloud` (no cloudbuild.yaml required). See "Google Cloud Run Deployment" below.
 
 ---
 
@@ -120,43 +118,44 @@ Notes:
 
 ---
 
-## Fly.io Deployment (Automated)
+## Google Cloud Run Deployment
 
 ### Prerequisites
 
-- Fly CLI installed and logged in: `fly auth login`
-- Billing enabled on your Fly org
+- Google Cloud project with billing enabled
+- gcloud CLI installed and configured: `gcloud auth login && gcloud config set project <PROJECT_ID>`
+- Optional: Artifact Registry repository (or use GCR)
 
-### Deploy
+### Build and deploy (example using GCR)
 
-```powershell
-./deploy.ps1
+```bash
+# From repo root
+gcloud builds submit --tag gcr.io/<PROJECT_ID>/erpnext:latest
+
+# Deploy to Cloud Run (fully managed)
+gcloud run deploy erpnext \
+  --image gcr.io/<PROJECT_ID>/erpnext:latest \
+  --platform managed \
+  --region <REGION> \
+  --allow-unauthenticated \
+  --set-env-vars PORT=8080 \
+  --set-env-vars FRAPPE_SITE_NAME_HEADER=<your-hostname-or-run.app-host> \
+  --set-env-vars DATABASE_URL="<mysql|postgres>://user:pass@host:port/dbname" \
+  --set-env-vars REDIS_QUEUE_URL="redis://:pass@host:port" \
+  --set-env-vars REDIS_CACHE_URL="redis://:pass@host:port" \
+  --set-env-vars AUTO_BOOTSTRAP=1 \
+  --set-env-vars BOOTSTRAP_SITE=<site_name> \
+  --set-env-vars BOOTSTRAP_ADMIN_PASSWORD=<strong_password>
+
+# Increase request/startup timeout if first boot is slow
+gcloud run services update erpnext --region <REGION> --timeout 300
 ```
 
-It will:
+Notes:
 
-- Create/update the Fly app from `fly.toml`
-- Provision managed Postgres and Redis
-- Create a persistent volume for `sites`
-- Extract Redis private URL and set secrets `REDIS_CACHE_URL`, `REDIS_QUEUE_URL`
-- Deploy the Docker image
-
-Post-deploy:
-
-- URL: `https://<app>.fly.dev`
-- Logs: `fly logs -a <app>`
-
-Set admin password (example):
-
-```powershell
-fly ssh console -a <app> -C "bash -lc 'cd /home/frappe/frappe-bench/sites && bench --site <site> set-admin-password <pwd>'"
-```
-
-Teardown everything:
-
-```powershell
-./teardown.ps1
-```
+- The image binds to the Cloud Run-provided `PORT` automatically (defaults to 8080 if not set).
+- `AUTO_BOOTSTRAP=1` attempts to create the site on first boot using the DB credentials from `DATABASE_URL`.
+- Cloud Run has an ephemeral filesystem; persistent volumes for `sites/` are not supported. For production, consider GKE or a VM.
 
 ---
 
@@ -165,44 +164,38 @@ Teardown everything:
 - Container ENTRYPOINT is `resources/docker-entrypoint.sh`.
 - ENTRYPOINT parses `DATABASE_URL`, sets `REDIS_CACHE`/`REDIS_QUEUE`, and sets `REDIS_SOCKETIO` from queue by default.
 - ENTRYPOINT ensures `/home/frappe/frappe-bench/sites/apps.txt` exists by copying from image on first boot and `cd`s into `sites`.
-- `fly.toml` app process uses gunicorn on port `8000` (`http_service.internal_port = 8000`).
-- Workers/scheduler/websocket run under the same ENTRYPOINT so they inherit DB/Redis env and working dir.
+- The container runs Gunicorn and binds to `${PORT}` (Cloud Run sets this; default 8080).
+- Workers/scheduler/websocket patterns exist in `resources/Procfile` for reference, but Cloud Run only runs a single container process.
 
 ---
 
 ## Troubleshooting & Debugging
 
-### Fly.io
+### Google Cloud Run
 
 - **View logs**
 
+  - Console: Cloud Run service > Logs
+  - CLI example:
+
 ```bash
-fly logs -a <app>
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="erpnext"' --limit=100 --format=json
 ```
+
+- **Container failed to start or not listening on port**
+  - Ensure the image binds to `${PORT}` (Dockerfile CMD uses `--bind=0.0.0.0:${PORT:-8080}`).
+  - Increase startup timeout: `gcloud run services update erpnext --timeout 300`.
 
 - **Crash: OSError './apps.txt' Not Found**
-  - First boot with empty volume; ENTRYPOINT now copies `apps.txt` into `sites/` and sets CWD to `sites/`.
-  - Ensure `Dockerfile` copies `resources/apps.txt` into image. Re-deploy if needed.
+  - ENTRYPOINT seeds `apps.txt` into `sites/` on first boot.
+  - Ensure `resources/apps.txt` exists in the image (Dockerfile copies it).
 
 - **Redis tries 127.0.0.1**
-  - Ensure secrets `REDIS_CACHE_URL` and `REDIS_QUEUE_URL` are set (the deploy script sets them).
+  - Set `REDIS_CACHE_URL` and `REDIS_QUEUE_URL` env vars.
   - ENTRYPOINT exports `REDIS_SOCKETIO` from queue URL unless explicitly provided.
 
-- **Wrong port**
-  - App binds to `8000`. Ensure `fly.toml` `http_service.internal_port = 8000`.
-
-- **Volume too small**
-
-```bash
-fly vol list -a <app>
-fly vol extend <volume_id> --size <GB>
-```
-
-- **Exec into machine**
-
-```bash
-fly ssh console -a <app>
-```
+- **Database or auth errors**
+  - Verify `DATABASE_URL` and that Cloud Run can reach your DB/Redis (public endpoints or VPC connector).
 
 ### Local
 
@@ -230,19 +223,21 @@ If you fork/rename, update `fly.toml` `app`/`primary_region` accordingly.
 
 ## Command Cheat Sheet
 
-- Deploy: `./deploy.ps1`
-- Logs: `fly logs -a <app>`
-- Teardown: `./teardown.ps1`
+- Build (GCR): `gcloud builds submit --tag gcr.io/<PROJECT_ID>/erpnext:latest`
+- Deploy: `gcloud run deploy erpnext --image gcr.io/<PROJECT_ID>/erpnext:latest --region <REGION> --allow-unauthenticated`
+- Logs (CLI): `gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="erpnext"' --limit=100`
 - Local up/down/logs/ps: `./run-local.ps1 up|down|logs|ps`
-- Set admin password (Fly):
+- Set admin password (Cloud Run exec into a debug container or use bench inside a local container with same DB):
 
 ```powershell
-fly ssh console -a <app> -C "bash -lc 'cd /home/frappe/frappe-bench/sites && bench --site <site> set-admin-password <pwd>'"
+# Example (local):
+docker compose exec backend bench --site <site> set-admin-password <pwd>
 ```
 
 ---
 
 ## Notes
 
-- `.env` is for local only; Fly uses `fly.toml` + secrets.
-- `Procfile` exists for local `bench start` patterns; Fly uses explicit process commands.
+- `.env` is for local only. Cloud Run uses environment variables configured on the service.
+- `Procfile` exists for reference/local `bench start` patterns; Cloud Run runs a single container process.
+- Cloud Run has an ephemeral filesystem; ERPNext typically needs persistent `sites/`. For production, prefer GKE or a VM.

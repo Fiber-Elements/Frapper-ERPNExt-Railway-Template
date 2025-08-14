@@ -143,13 +143,6 @@ VOLUME [ \
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 CMD [ \
-  "/home/frappe/frappe-bench/env/bin/gunicorn", \
-  "--chdir=/home/frappe/frappe-bench/sites", \
-  "--bind=0.0.0.0:${PORT:-8080}", \
-  "--threads=4", \
-  "--workers=2", \
-  "--worker-class=gthread", \
-  "--worker-tmp-dir=/dev/shm", \
-  "--timeout=120", \
-  "frappe.app:application" \
+  "/bin/sh", "-lc", \
+  "exec /home/frappe/frappe-bench/env/bin/gunicorn --chdir=/home/frappe/frappe-bench/sites --bind=0.0.0.0:${PORT:-8080} --threads=4 --workers=2 --worker-class=gthread --worker-tmp-dir=/dev/shm --timeout=120 frappe.app:application" \
 ]
