@@ -115,13 +115,20 @@ services:
     depends_on:
       - backend
     command:
-      - nginx-entrypoint.sh
+      - bash
+      - -c
+      - |
+        wait-for-it -t 180 backend:8000;
+        /usr/local/bin/nginx-entrypoint.sh
   websocket:
     depends_on:
       - redis-queue
     command:
-      - node
-      - /home/frappe/frappe-bench/apps/frappe/socketio.js
+      - bash
+      - -c
+      - |
+        wait-for-it -t 120 redis-queue:6379;
+        node /home/frappe/frappe-bench/apps/frappe/socketio.js
 "@ | Set-Content -Encoding UTF8 -Path $OverridePath
   $ComposeArgsBase += @('-f', $OverridePath)
   $UsingOverride = $true
