@@ -71,7 +71,8 @@ COPY resources/nginx-template.conf /templates/nginx/frappe.conf.template
 COPY resources/nginx-entrypoint.sh /usr/local/bin/nginx-entrypoint.sh
 COPY resources/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-RUN chmod +x /usr/local/bin/nginx-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/nginx-entrypoint.sh /usr/local/bin/docker-entrypoint.sh \
+    && sed -i 's/\r$//' /usr/local/bin/nginx-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 FROM base AS build
 
@@ -144,12 +145,11 @@ ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD [ \
   "/home/frappe/frappe-bench/env/bin/gunicorn", \
   "--chdir=/home/frappe/frappe-bench/sites", \
-  "--bind=0.0.0.0:8000", \
+  "--bind=0.0.0.0:${PORT:-8080}", \
   "--threads=4", \
   "--workers=2", \
   "--worker-class=gthread", \
   "--worker-tmp-dir=/dev/shm", \
   "--timeout=120", \
-  "--preload", \
   "frappe.app:application" \
 ]
