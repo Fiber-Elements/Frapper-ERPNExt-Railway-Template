@@ -112,6 +112,14 @@ services:
   frontend:
     ports:
       - "${ChosenPort}:8080"
+    depends_on:
+      - backend
+    command:
+      - bash
+      - -lc
+      - |
+        wait-for-it -t 180 backend:8000;
+        nginx-entrypoint.sh
   websocket:
     depends_on:
       - redis-queue
