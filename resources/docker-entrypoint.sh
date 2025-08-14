@@ -55,8 +55,7 @@ fi
 
 # Optional: AUTO_BOOTSTRAP a site on first boot if requested and variables exist
 if [[ "${AUTO_BOOTSTRAP:-0}" == "1" ]]; then
-  BOOTSTRAP_SITE_NAME="${BOOTSTRAP_SITE:-}" \
-  || BOOTSTRAP_SITE_NAME="${FRAPPE_SITE_NAME_HEADER:-}" || true
+  BOOTSTRAP_SITE_NAME="${BOOTSTRAP_SITE:-${FRAPPE_SITE_NAME_HEADER:-}}"
 
   if [[ -n "$BOOTSTRAP_SITE_NAME" && ! -d "$SITES_DIR/$BOOTSTRAP_SITE_NAME" ]]; then
     echo "[entrypoint] AUTO_BOOTSTRAP=1 and site '$BOOTSTRAP_SITE_NAME' not found; attempting creation"
@@ -85,4 +84,18 @@ if [[ "${AUTO_BOOTSTRAP:-0}" == "1" ]]; then
 fi
 
 # Exec the passed command (e.g., gunicorn)
+# Ensure a default site is selected when Host header doesn't map to a site
+# Priority: DEFAULT_SITE env > BOOTSTRAP_SITE_NAME (if created)
+if [[ -n "${DEFAULT_SITE:-}" ]]; then
+  if [[ -d "$SITES_DIR/$DEFAULT_SITE" ]]; then
+    echo "[entrypoint] Setting default site from DEFAULT_SITE=$DEFAULT_SITE"
+    printf "%s\n" "$DEFAULT_SITE" > "$SITES_DIR/currentsite.txt"
+  else
+    echo "[entrypoint] WARNING: DEFAULT_SITE '$DEFAULT_SITE' not found under sites/. Skipping default site set."
+  fi
+elif [[ -n "${BOOTSTRAP_SITE_NAME:-}" && -d "$SITES_DIR/$BOOTSTRAP_SITE_NAME" ]]; then
+  echo "[entrypoint] Setting default site to bootstrapped site '$BOOTSTRAP_SITE_NAME'"
+  printf "%s\n" "$BOOTSTRAP_SITE_NAME" > "$SITES_DIR/currentsite.txt"
+fi
+
 exec "$@"

@@ -145,6 +145,7 @@ gcloud run deploy erpnext \
   --set-env-vars REDIS_CACHE_URL="redis://:pass@host:port" \
   --set-env-vars AUTO_BOOTSTRAP=1 \
   --set-env-vars BOOTSTRAP_SITE=<site_name> \
+  --set-env-vars DEFAULT_SITE=<site_name> \
   --set-env-vars BOOTSTRAP_ADMIN_PASSWORD=<strong_password>
 
 # Increase request/startup timeout if first boot is slow
@@ -155,6 +156,7 @@ Notes:
 
 - The image binds to the Cloud Run-provided `PORT` automatically (defaults to 8080 if not set).
 - `AUTO_BOOTSTRAP=1` attempts to create the site on first boot using the DB credentials from `DATABASE_URL`.
+- Set `DEFAULT_SITE` to the site name to serve when the Host header doesn't match a site (Cloud Run hostnames are long); this writes `sites/currentsite.txt`.
 - Cloud Run has an ephemeral filesystem; persistent volumes for `sites/` are not supported. For production, consider GKE or a VM.
 
 ---
@@ -189,6 +191,11 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
 - **Crash: OSError './apps.txt' Not Found**
   - ENTRYPOINT seeds `apps.txt` into `sites/` on first boot.
   - Ensure `resources/apps.txt` exists in the image (Dockerfile copies it).
+
+- **404 "Site not found" or "not existing page" on root**
+  - Ensure a site exists: use `AUTO_BOOTSTRAP=1` with `BOOTSTRAP_SITE=<site>` and DB creds.
+  - Set `DEFAULT_SITE=<site>` so Frappe serves that site regardless of Host header.
+  - Optionally set `FRAPPE_SITE_NAME_HEADER` to the Cloud Run URL host to map Host->site.
 
 - **Redis tries 127.0.0.1**
   - Set `REDIS_CACHE_URL` and `REDIS_QUEUE_URL` env vars.
