@@ -72,25 +72,9 @@ echo "  - Redis Cache: $REDIS_CACHE"
 echo "  - Redis Queue: $REDIS_QUEUE"
 echo "  - Site Name Header: $FRAPPE_SITE_NAME_HEADER"
 
-# Railway volume handling - detect and use the actual mounted volume
-echo "[INFO] Detecting Railway volume mount..."
-
-# Railway automatically mounts volumes, find the actual mount point
-VOLUME_PATH=""
-for possible_path in /var/lib/containers/railwayapp/bind-mounts/*/vol_*; do
-    if [[ -d "$possible_path" ]]; then
-        VOLUME_PATH="$possible_path"
-        echo "[INFO] Found Railway volume at: $VOLUME_PATH"
-        break
-    fi
-done
-
-# If no volume found, create temporary directories
-if [[ -z "$VOLUME_PATH" ]]; then
-    echo "[WARNING] No Railway volume detected, using temporary storage"
-    VOLUME_PATH="/tmp/frappe_data"
-    mkdir -p "$VOLUME_PATH"
-fi
+# --- Volume Configuration ---
+# Use the predictable volume path defined in the Dockerfile.
+VOLUME_PATH="/home/frappe/persistent"
 
 echo "[INFO] Using volume path: $VOLUME_PATH"
 echo "[INFO] Volume permissions: $(ls -la "$VOLUME_PATH" 2>/dev/null || echo 'Cannot access volume')"
