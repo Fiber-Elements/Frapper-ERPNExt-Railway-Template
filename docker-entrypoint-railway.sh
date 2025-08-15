@@ -14,10 +14,10 @@ export FRAPPE_SITE_NAME_HEADER=${FRAPPE_SITE_NAME_HEADER:-frontend}
 export BACKEND=${BACKEND:-127.0.0.1:8000}
 export SOCKETIO=${SOCKETIO:-127.0.0.1:9000}
 
-# Database configuration
-export DB_HOST=${DB_HOST:-}
-export DB_PORT=${DB_PORT:-3306}
-export DB_PASSWORD=${DB_PASSWORD:-}
+# Database configuration - handle both DB_* and MARIADB_* variable names
+export DB_HOST=${DB_HOST:-${MARIADB_HOST:-}}
+export DB_PORT=${DB_PORT:-${MARIADB_PORT:-3306}}
+export DB_PASSWORD=${DB_PASSWORD:-${MARIADB_ROOT_PASSWORD:-}}
 
 # Redis configuration
 export REDIS_CACHE_URL=${REDIS_CACHE_URL:-}
@@ -44,20 +44,32 @@ echo "  - Redis Cache: $REDIS_CACHE"
 echo "  - Redis Queue: $REDIS_QUEUE"
 echo "  - Site Name Header: $FRAPPE_SITE_NAME_HEADER"
 
-# Create directory structure using single volume mount
-# Railway mounts volume at /home/frappe/frappe-bench/persistent
-mkdir -p persistent/sites
-mkdir -p persistent/logs
+# Railway volume handling - detect actual mount point
+VOLUME_PATH="/home/frappe/frappe-bench/persistent"
+if [[ ! -d "$VOLUME_PATH" ]]; then
+    # Check for Railway's actual volume mount paths
+    for possible_path in /var/lib/containers/railwayapp/bind-mounts/*/vol_*; do
+        if [[ -d "$possible_path" ]]; then
+            VOLUME_PATH="$possible_path"
+            echo "[INFO] Found Railway volume at: $VOLUME_PATH"
+            break
+        fi
+    done
+fi
+
+# Create directory structure in the volume
+echo "[INFO] Creating directories in volume: $VOLUME_PATH"
+mkdir -p "$VOLUME_PATH/sites" "$VOLUME_PATH/logs"
 
 # Create symbolic links to maintain expected paths
 if [[ ! -L sites ]]; then
     rm -rf sites 2>/dev/null || true
-    ln -sf persistent/sites sites
+    ln -sf "$VOLUME_PATH/sites" sites
 fi
 
 if [[ ! -L logs ]]; then
     rm -rf logs 2>/dev/null || true
-    ln -sf persistent/logs logs
+    ln -sf "$VOLUME_PATH/logs" logs
 fi
 
 # Wait for database and Redis to be available
@@ -129,67 +141,8 @@ else
     echo "[INFO] Site already exists: $SITE_NAME"
 fi
 
-# Update nginx port configuration to use Railway's PORT
-if [[ -n "$PORT" ]]; then
-    # Create custom nginx config for Railway port
-    cat > /tmp/railway_nginx.conf << EOF
-upstream backend {
-    server 127.0.0.1:8000 fail_timeout=0;
-}
-
-upstream socketio {
-    server 127.0.0.1:9000 fail_timeout=0;
-}
-
-server {
-    listen $PORT;
-    server_name \$host;
-    
-    root /home/frappe/frappe-bench/sites;
-    
-    location /assets {
-        try_files \$uri =404;
-    }
-    
-    location ~ ^/protected/(.*) {
-        internal;
-        try_files /\$frappe_site_name/\$1 =404;
-    }
-    
-    location /socket.io {
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header X-Frappe-Site-Name \$frappe_site_name;
-        proxy_set_header Origin \$scheme://\$http_host;
-        proxy_set_header Host \$host;
-        proxy_pass http://socketio;
-    }
-    
-    location / {
-        try_files /\$frappe_site_name/public/\$uri @webserver;
-    }
-    
-    location @webserver {
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_set_header X-Frappe-Site-Name \$frappe_site_name;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Use-X-Accel-Redirect True;
-        proxy_read_timeout ${PROXY_READ_TIMEOUT:-120};
-        proxy_redirect off;
-        proxy_pass http://backend;
-    }
-    
-    client_max_body_size ${CLIENT_MAX_BODY_SIZE:-50m};
-}
-
-map \$http_host \$frappe_site_name {
-    default $FRAPPE_SITE_NAME_HEADER;
-}
-EOF
-    export RAILWAY_NGINX_CONF="/tmp/railway_nginx.conf"
-fi
+# Configure environment for Railway HTTP exposure
+echo "[INFO] Railway will provide public URL automatically at: https://your-app-name.up.railway.app"
 
 echo "[INFO] Starting all services with supervisord..."
 
