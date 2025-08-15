@@ -223,11 +223,13 @@ if [[ ! -d "sites/$SITE_NAME" ]]; then
         mkdir -p "sites/$SITE_NAME"
         
         # Create site config to connect to existing database
+        # Respect optional DB_NAME/DB_USER env vars; default to sanitized site name and root user
         cat > "sites/$SITE_NAME/site_config.json" << EOF
 {
  "db_host": "${DB_HOST}",
  "db_port": ${DB_PORT},
- "db_name": "$(echo "$SITE_NAME" | sed 's/\./_/g' | sed 's/-/_/g')",
+ "db_name": "${DB_NAME:-${MYSQL_DATABASE:-$(echo "$SITE_NAME" | sed 's/\./_/g' | sed 's/-/_/g')}}",
+ "db_user": "${DB_USER:-root}",
  "db_password": "${DB_PASSWORD}",
  "encryption_key": "$(openssl rand -base64 32)"
 }
@@ -242,6 +244,30 @@ else
     echo "[INFO] Site already exists: $SITE_NAME"
     # Ensure site is enabled
     bench use "$SITE_NAME" 2>/dev/null || true
+fi
+
+# Enforce DB user if necessary to avoid MySQL username length issues
+if [[ -f "sites/$SITE_NAME/site_config.json" ]]; then
+    CURRENT_DB_USER=$(jq -r '.db_user // empty' "sites/$SITE_NAME/site_config.json" 2>/dev/null || true)
+    NEED_OVERRIDE=false
+    if [[ -n "$DB_USER" ]]; then
+        NEED_OVERRIDE=true
+    elif [[ -z "$CURRENT_DB_USER" ]]; then
+        NEED_OVERRIDE=true
+    elif [[ ${#CURRENT_DB_USER} -gt 32 ]]; then
+        NEED_OVERRIDE=true
+    fi
+    if [[ "$NEED_OVERRIDE" == "true" ]]; then
+        echo "[INFO] Updating site_config.json to use DB user '${DB_USER:-root}' for site $SITE_NAME"
+        tmp_cfg=$(mktemp)
+        jq \
+          --arg db_host "$DB_HOST" \
+          --argjson db_port ${DB_PORT:-3306} \
+          --arg db_user "${DB_USER:-root}" \
+          --arg db_password "$DB_PASSWORD" \
+          '.db_host=$db_host | .db_port=$db_port | .db_user=$db_user | .db_password=$db_password' \
+          "sites/$SITE_NAME/site_config.json" > "$tmp_cfg" && mv "$tmp_cfg" "sites/$SITE_NAME/site_config.json"
+    fi
 fi
 
 # Apply migrations and clear cache to ensure workers/websocket have latest schema and config
