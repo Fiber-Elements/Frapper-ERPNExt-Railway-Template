@@ -24,7 +24,7 @@ This repository lets you spin up a complete Frappe/ERPNext stack locally on Wind
 2) Run:
 
 ```powershell
-./run-local.ps1
+./deploys/run-local.ps1
 ```
 
 The script will:
@@ -45,13 +45,13 @@ Password: generated and printed by the script (or use `-AdminPassword`)
 ## Script options
 ```powershell
 # Use a specific port (default 8080)
-./run-local.ps1 -Port 8090
+./deploys/run-local.ps1 -Port 8090
 
 # Provide your own admin password (must be 8–64 chars, A‑Z a‑z 0‑9 _ -)
-./run-local.ps1 -AdminPassword "YourStrong_Password-123"
+./deploys/run-local.ps1 -AdminPassword "YourStrong_Password-123"
 
 # Do not auto-open the browser when done
-./run-local.ps1 -OpenBrowser:$false
+./deploys/run-local.ps1 -OpenBrowser:$false
 ```
 
 ## Data persistence
@@ -88,41 +88,41 @@ These volumes persist across container restarts. Deleting them will erase data.
   docker compose -f .\frappe_docker\pwd.yml down -v
   ```
 
-## Cloud Deployment
+## GCP Deployment (Compute Engine VM)
 
-This template also includes a one-click deployment to the [Railway](https://railway.app) platform.
+This option reproduces the local Docker Compose setup on a single GCE VM using `frappe_docker/pwd.yml` (MariaDB 10.6 + Redis + ERPNext).
 
-**Prerequisites:**
+* __Prerequisites__
+  - Install Google Cloud SDK (`gcloud`) and authenticate.
+  - A GCP project with billing enabled.
+  - PowerShell (to run the helper script).
 
-1.  Install the Railway CLI: `npm i -g @railway/cli`
-2.  Login to your Railway account: `railway login`
+* __Quick start__
+  ```powershell
+  gcloud auth login
+  gcloud config set project <PROJECT_ID>
+  ./deploys/deploy-gcp.ps1 -ProjectId <PROJECT_ID> -Name erpnext-1 -Zone europe-west1-b -HttpPort 80 -AdminPassword "YourStrong_Password-123"
+  ```
 
-**Deployment:**
+  - The script enables required APIs, creates firewall rules, provisions an Ubuntu VM, and passes a startup script (`scripts/gcp-startup.sh`).
+  - First boot can take 10–20 minutes (image pulls, site creation). The script prints the public URL when available.
 
-To deploy the application to Railway, run the following command:
+* __If you didn’t pass an AdminPassword__
+  - A secure password is generated on the VM and printed in serial logs:
+  ```powershell
+  gcloud compute instances get-serial-port-output erpnext-1 --zone europe-west1-b --port 1
+  ```
 
-```powershell
-./deploy-railway.ps1
-```
+* __Fetch the external IP__ (if needed):
+  ```powershell
+  gcloud compute instances describe erpnext-1 --zone europe-west1-b --format="get(networkInterfaces[0].accessConfigs[0].natIP)"
+  ```
 
-The script will automatically provision a new project, create MariaDB and Redis services, and deploy the Frappe/ERPNext application. If you don't provide a password, a secure one will be generated.
+* __Cleanup__
+  ```powershell
+  gcloud compute instances delete erpnext-1 --zone europe-west1-b
+  ```
 
-To provide your own password, run the script and a secure prompt will appear:
-
-```powershell
-./deploy-railway.ps1 -Credential (Get-Credential)
-```
-
-The script will then output the URL and administrator credentials.
-
-## Repo notes
-- `run-local.ps1` automates the full local lifecycle.
-- `frappe_docker/` is ignored by git and will be cloned/updated as needed.
-- `.env.template` is provided for modular/cloud setups; it is not required for the local all‑in‑one flow.
-
-## Security
-- The script prints the Administrator password on completion. Store it securely.
-- For repeatable credentials, use the `-Credential` parameter.
-
-## License
-This repository leverages the official `frappe_docker` setup. See their repository for license details of the images and compose files.
+Notes:
+- This path keeps MariaDB 10.6 and Redis in containers, matching local behavior.
+- For production hardening, add HTTPS (reverse proxy/managed certs), backups, monitoring, and consider attaching a separate persistent disk for `sites/`.

@@ -78,10 +78,11 @@ try {
   Write-Info 'Preflight checks'
   if (-not (Test-Command 'docker')) { throw 'Docker is not installed or not on PATH. Please install Docker Desktop and try again.' }
 
-  # Resolve paths
+  # Resolve paths (repo root is parent of the 'deploys' directory where this script lives)
   $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-  Ensure-FrappeDockerSources -Dir (Join-Path $ScriptDir 'frappe_docker')
-  $ComposeFile = Join-Path $ScriptDir 'frappe_docker\pwd.yml'
+  $RepoRoot = Split-Path -Parent $ScriptDir
+  Ensure-FrappeDockerSources -Dir (Join-Path $RepoRoot 'frappe_docker')
+  $ComposeFile = Join-Path $RepoRoot 'frappe_docker\pwd.yml'
   if (-not (Test-Path $ComposeFile)) { throw "Compose file not found: $ComposeFile" }
 
   # Ensure a password (safe characters only to avoid quoting issues): A-Za-z0-9_-
