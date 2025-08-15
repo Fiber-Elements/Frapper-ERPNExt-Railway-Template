@@ -1,0 +1,19 @@
+# Ignore local development and sensitive files
+.git
+.gitignore
+.vscode/
+
+# Ignore local Frappe Docker setup
+frappe_docker/
+
+# Ignore scripts and documentation not needed in the image
+scripts/
+docs/
+
+# Ignore local environment files
+.env
+*.env
+
+# Ignore PowerShell and Markdown files
+*.ps1
+*.md

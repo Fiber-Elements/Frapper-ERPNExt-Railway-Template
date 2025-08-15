@@ -82,6 +82,15 @@ These volumes persist across container restarts. Deleting them will erase data.
   docker compose -f .\frappe_docker\pwd.yml down -v
   ```
 
+## Cloud Deployment
+
+### Railway
+
+This repository is pre-configured for easy deployment to [Railway](https://railway.app).
+
+-   **Instructions**: See [`docs/RAILWAY.md`](./docs/RAILWAY.md) for a full step-by-step guide.
+-   **Automated Script**: Use [`scripts/deploy-railway.ps1`](./scripts/deploy-railway.ps1) to automate setting environment variables and triggering a deployment.
+
 ## Repo notes
 - `run-local.ps1` automates the full local lifecycle.
 - `frappe_docker/` is ignored by git and will be cloned/updated as needed.
