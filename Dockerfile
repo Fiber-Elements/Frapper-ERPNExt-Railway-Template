@@ -11,6 +11,6 @@ RUN chmod +x /home/frappe/frappe-bench/scripts/railway-entrypoint.sh
 # The base image already contains ERPNext. If you need to add custom apps
 # from an apps.json file, you would need to switch back to a multi-stage build.
 
-# The entrypoint and default command are already configured in the base image.
-# Ensure the correct environment variables are set in Railway and that
-# port 8080 is exposed in the Railway service settings.
+# Set our script as the new entrypoint.
+# It will configure the environment and then execute the base image's CMD.
+ENTRYPOINT ["/home/frappe/frappe-bench/scripts/railway-entrypoint.sh"]

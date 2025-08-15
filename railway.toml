@@ -12,9 +12,6 @@ dockerfilePath = "Dockerfile"
 # Specify the internal port the application listens on. This is crucial for health checks and routing.
 port = 8000
 
-# This command runs the entrypoint script before the application starts.
-# The script parses connection strings into environment variables for Frappe.
-preDeployCommand = "sh scripts/railway-entrypoint.sh"
 
 # The start command is inherited from the Docker image's entrypoint, so it's not needed here.
 

@@ -35,4 +35,7 @@ if [ -n "$REDIS_URL" ]; then
     echo "Redis variables exported."
 fi
 
-# The original entrypoint of the Frappe image will be executed after this script.
+echo "Starting Frappe entrypoint..."
+
+# Execute the original entrypoint command passed to this script
+exec "$@"
