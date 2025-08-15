@@ -13,7 +13,8 @@ export SOCKETIO_PORT=9000
 # Use Railway public domain if available, fallback to project name or default
 export RAILWAY_PUBLIC_DOMAIN=${RAILWAY_PUBLIC_DOMAIN:-}
 if [[ -n "$RAILWAY_PUBLIC_DOMAIN" ]]; then
-    export FRAPPE_SITE_NAME_HEADER="$$host"
+    # Pass literal $host to Nginx (do not expand in shell)
+    export FRAPPE_SITE_NAME_HEADER='\$host'
     export SITE_NAME="$RAILWAY_PUBLIC_DOMAIN"
 else
     export FRAPPE_SITE_NAME_HEADER=${FRAPPE_SITE_NAME_HEADER:-${RAILWAY_PROJECT_NAME:-frontend}}
@@ -30,7 +31,7 @@ echo "[DEBUG] MARIADB_ROOT_PASSWORD value: '${MARIADB_ROOT_PASSWORD:-not set}'"
 
 export DB_HOST=${DB_HOST:-${MARIADB_HOST:-}}
 export DB_PORT=${DB_PORT:-${MARIADB_PORT:-3306}}
-export DB_PASSWORD=${DB_PASSWORD:-${MARIADB_ROOT_PASSWORD:-}}
+export DB_PASSWORD=${DB_PASSWORD:-${MARIADB_ROOT_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}}
 
 echo "[DEBUG] Final DB_HOST: '$DB_HOST'"
 echo "[DEBUG] Final DB_PORT: '$DB_PORT'"
@@ -163,9 +164,9 @@ if [[ ! -f "sites/common_site_config.json" ]]; then
 {
  "db_host": "${DB_HOST}",
  "db_port": ${DB_PORT},
- "redis_cache": "redis://${REDIS_CACHE}",
- "redis_queue": "redis://${REDIS_QUEUE}",
- "redis_socketio": "redis://${REDIS_SOCKETIO}",
+ "redis_cache": "${REDIS_CACHE_URL}",
+ "redis_queue": "${REDIS_QUEUE_URL}",
+ "redis_socketio": "${REDIS_SOCKETIO_URL}",
  "socketio_port": ${SOCKETIO_PORT}
 }
 EOF
@@ -177,16 +178,16 @@ else
         bench set-config -gp db_port "$DB_PORT"
     fi
 
-    if [[ -n "$REDIS_CACHE" ]]; then
-        bench set-config -g redis_cache "redis://$REDIS_CACHE"
+    if [[ -n "$REDIS_CACHE_URL" ]]; then
+        bench set-config -g redis_cache "$REDIS_CACHE_URL"
     fi
 
-    if [[ -n "$REDIS_QUEUE" ]]; then
-        bench set-config -g redis_queue "redis://$REDIS_QUEUE"
+    if [[ -n "$REDIS_QUEUE_URL" ]]; then
+        bench set-config -g redis_queue "$REDIS_QUEUE_URL"
     fi
 
-    if [[ -n "$REDIS_SOCKETIO" ]]; then
-        bench set-config -g redis_socketio "redis://$REDIS_SOCKETIO"
+    if [[ -n "$REDIS_SOCKETIO_URL" ]]; then
+        bench set-config -g redis_socketio "$REDIS_SOCKETIO_URL"
     fi
 
     bench set-config -gp socketio_port "$SOCKETIO_PORT"
@@ -242,6 +243,11 @@ else
     # Ensure site is enabled
     bench use "$SITE_NAME" 2>/dev/null || true
 fi
+
+# Apply migrations and clear cache to ensure workers/websocket have latest schema and config
+echo "[INFO] Running bench migrate and clear-cache for site: $SITE_NAME"
+bench --site "$SITE_NAME" migrate || true
+bench --site "$SITE_NAME" clear-cache || true
 
 # If using Railway public domain, create additional site for the domain
 if [[ -n "$RAILWAY_PUBLIC_DOMAIN" && "$RAILWAY_PUBLIC_DOMAIN" != "$SITE_NAME" ]]; then
