@@ -241,6 +241,10 @@ EOF
         
         # Set site as default
         bench use "$SITE_NAME" || true
+
+        # If database exists but is empty, ensure base schema is installed
+        echo "[INFO] Ensuring ERPNext is installed on existing database (will create tables if missing)..."
+        bench --site "$SITE_NAME" install-app erpnext || true
     fi
     
     echo "[INFO] Site setup completed: $SITE_NAME"
@@ -248,6 +252,9 @@ else
     echo "[INFO] Site already exists: $SITE_NAME"
     # Ensure site is enabled
     bench use "$SITE_NAME" 2>/dev/null || true
+    # Ensure ERPNext is installed (no-op if already installed); creates missing tables
+    echo "[INFO] Ensuring ERPNext is installed on existing site (safe if already installed)..."
+    bench --site "$SITE_NAME" install-app erpnext || true
 fi
 
 # Enforce DB user if necessary to avoid MySQL username length issues
@@ -269,7 +276,8 @@ if [[ -f "sites/$SITE_NAME/site_config.json" ]]; then
           --argjson db_port ${DB_PORT:-3306} \
           --arg db_user "${DB_USER:-root}" \
           --arg db_password "$DB_PASSWORD" \
-          '.db_host=$db_host | .db_port=$db_port | .db_user=$db_user | .db_password=$db_password' \
+          --arg db_name "${DB_NAME:-${MYSQL_DATABASE:-$(echo "$SITE_NAME" | sed 's/\./_/g' | sed 's/-/_/g')}}" \
+          '.db_host=$db_host | .db_port=$db_port | .db_user=$db_user | .db_password=$db_password | .db_name=$db_name' \
           "sites/$SITE_NAME/site_config.json" > "$tmp_cfg" && mv "$tmp_cfg" "sites/$SITE_NAME/site_config.json"
     fi
 fi
@@ -287,7 +295,7 @@ if [[ -n "$RAILWAY_PUBLIC_DOMAIN" && "$RAILWAY_PUBLIC_DOMAIN" != "$SITE_NAME" ]]
             --mariadb-user-host-login-scope='%' \
             --admin-password="${BOOTSTRAP_ADMIN_PASSWORD:-admin}" \
             --db-root-username=root \
-            --db-root-password="$DB_PASSWORD" \
+            --db-root-password="$DB_ROOT_PASSWORD" \
             --install-app erpnext \
             "$RAILWAY_PUBLIC_DOMAIN"
         echo "[INFO] Railway domain site created: $RAILWAY_PUBLIC_DOMAIN"
