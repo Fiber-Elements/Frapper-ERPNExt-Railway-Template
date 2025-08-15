@@ -7,10 +7,20 @@ kill_timeout = "15s"
 image = "frappe/erpnext:v15.27.0"
 
 [env]
-FRAPPE_SITE_NAME_HEADER = "erpnext-fibers.fly.dev"
-SOCKETIO_PORT = "3000"
+# Nginx frontend configuration
+BACKEND = "127.0.0.1:8000"
+SOCKETIO = "127.0.0.1:9000"
+FRAPPE_SITE_NAME_HEADER = "frontend"
+UPSTREAM_REAL_IP_ADDRESS = "127.0.0.1"
+UPSTREAM_REAL_IP_HEADER = "X-Forwarded-For"
+UPSTREAM_REAL_IP_RECURSIVE = "off"
+PROXY_READ_TIMEOUT = "120"
+CLIENT_MAX_BODY_SIZE = "50m"
+
+# Site configuration
+BOOTSTRAP_SITE = "frontend"
 AUTO_BOOTSTRAP = "1"
-BOOTSTRAP_SITE = "erpnext-fibers.fly.dev"
+BENCH_INIT = "1"
 
 # Database configuration (will be set by deployment script)
 # DB_HOST = "erpnext-db.internal"
@@ -32,12 +42,21 @@ cpu_kind = "shared"
 cpus = 2
 
 [[processes]]
-name = "frontend"
-cmd = ["nginx", "-g", "daemon off;"]
+name = "configurator"
+cmd = ["bash", "-c", "if [[ ! -f /home/frappe/frappe-bench/sites/common_site_config.json ]]; then /home/frappe/frappe-bench/env/bin/python /opt/frappe/configure.py; fi"]
+
+[[processes]]
+name = "create-site"
+cmd = ["new"]
 
 [[processes]]
 name = "backend"
-cmd = ["python", "-m", "gunicorn", "--bind", "0.0.0.0:8000", "--threads", "4", "--timeout", "120", "frappe.app:application", "--preload"]
+cmd = ["start"]
+
+[[processes]]
+name = "frontend"
+entrypoint = ["/usr/local/bin/nginx-entrypoint.sh"]
+cmd = []
 
 [[processes]]
 name = "websocket"
@@ -45,19 +64,29 @@ cmd = ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
 
 [[processes]]
 name = "scheduler"
-cmd = ["python", "-m", "frappe.utils.bench", "schedule"]
+cmd = ["schedule"]
+
+[[processes]]
+name = "queue-default"
+cmd = ["worker"]
+[processes.env]
+WORKER_TYPE = "default"
 
 [[processes]]
 name = "queue-short"
-cmd = ["python", "-m", "frappe.utils.bench", "worker", "--queue", "short"]
+cmd = ["worker"]
+[processes.env]
+WORKER_TYPE = "short"
 
 [[processes]]
 name = "queue-long"
-cmd = ["python", "-m", "frappe.utils.bench", "worker", "--queue", "long"]
+cmd = ["worker"]
+[processes.env]
+WORKER_TYPE = "long"
 
 [[services]]
 processes = ["frontend"]
-internal_port = 8080
+internal_port = 80
 protocol = "tcp"
 auto_stop_machines = true
 auto_start_machines = true
@@ -80,6 +109,14 @@ method = "get"
 
 [deploy]
 strategy = "rolling"
+
+
+
+
+
+
+
+
 
 
 

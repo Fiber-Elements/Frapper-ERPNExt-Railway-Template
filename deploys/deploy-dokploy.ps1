@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$ServerIP,
     [string]$DomainName,
-    [string]$AdminPassword
+    [string]$AdminPassword,
+    [string]$DokployToken
 )
 
 Set-StrictMode -Version Latest
@@ -21,8 +22,71 @@ function New-RandomPassword([int]$length = 20) {
     -join ((1..$length) | ForEach-Object { $arr[(Get-Random -Minimum 0 -Maximum $arr.Length)] })
 }
 
+function Invoke-DokployAPI {
+    param(
+        [string]$Endpoint,
+        [string]$Method = "GET",
+        [object]$Body = $null,
+        [string]$Token,
+        [string]$BaseUrl
+    )
+    
+    # Different auth methods for cloud vs self-hosted
+    $headers = @{
+        "Content-Type" = "application/json"
+        "Accept" = "application/json"
+    }
+    
+    # For Dokploy Cloud, try different auth formats
+    if ($BaseUrl -like "*app.dokploy.com*") {
+        $headers["Authorization"] = "Bearer $Token"
+        # Also try alternative auth header formats
+        $headers["X-API-Key"] = $Token
+    } else {
+        $headers["Authorization"] = "Bearer $Token"
+    }
+    
+    $apiUrl = if ($BaseUrl -like "*app.dokploy.com*") {
+        "$BaseUrl/api/v1/$Endpoint"  # Cloud API version
+    } else {
+        "$BaseUrl/api/$Endpoint"     # Self-hosted API
+    }
+    
+    $params = @{
+        Uri = $apiUrl
+        Method = $Method
+        Headers = $headers
+        TimeoutSec = 30
+    }
+    
+    if ($Body) {
+        $params.Body = ($Body | ConvertTo-Json -Depth 10)
+    }
+    
+    Write-Info "API Call: $Method $apiUrl"
+    
+    try {
+        $response = Invoke-RestMethod @params
+        return $response
+    } catch {
+        $errorDetails = $_.Exception.Message
+        if ($_.Exception.Response) {
+            try {
+                $errorStream = $_.Exception.Response.GetResponseStream()
+                $reader = New-Object System.IO.StreamReader($errorStream)
+                $errorBody = $reader.ReadToEnd()
+                $errorDetails += " | Response: $errorBody"
+            } catch {
+                # Ignore error reading response
+            }
+        }
+        Write-Err "API call failed: $errorDetails"
+        throw
+    }
+}
+
 try {
-    Write-Info "Starting ERPNext deployment to Dokploy..."
+    Write-Info "Starting automated ERPNext deployment to Dokploy..."
     
     # Generate admin password if not provided
     if (-not $AdminPassword) {
@@ -30,331 +94,246 @@ try {
         Write-Info "Generated admin password: $AdminPassword"
     }
 
-    # Set domain name
+    # Set domain name and Dokploy URL
     $siteName = if ($DomainName) { $DomainName } else { "$ServerIP.traefik.me" }
+    
+    # Check if using Dokploy Cloud or self-hosted
+    $isCloudDeployment = $true # Default to cloud
+    $dokployUrl = if ($isCloudDeployment) { "https://app.dokploy.com" } else { "http://${ServerIP}:3000" }
     
     Write-Info "Deployment Configuration:"
     Write-Host "  Server IP:    $ServerIP" -ForegroundColor Yellow
     Write-Host "  Site Name:    $siteName" -ForegroundColor Yellow
     Write-Host "  Admin Pass:   $AdminPassword" -ForegroundColor Yellow
+    Write-Host "  Dokploy URL:  $dokployUrl" -ForegroundColor Yellow
     Write-Host ""
 
-    # Create docker-compose configuration for Dokploy
-    $composeContent = @"
-version: '3.8'
+    # Validate server IP and URL construction
+    if (-not $ServerIP -or $ServerIP -eq "") {
+        Write-Err "ServerIP parameter is required and cannot be empty"
+        exit 1
+    }
+    
+    # Validate URL construction
+    try {
+        $testUri = [System.Uri]::new($dokployUrl)
+        Write-Info "Dokploy URL validated: $dokployUrl"
+    } catch {
+        Write-Err "Invalid Dokploy URL constructed: $dokployUrl"
+        Write-Err "Error: $($_.Exception.Message)"
+        exit 1
+    }
 
-services:
-  # Database
-  db:
-    image: mariadb:10.6
-    restart: unless-stopped
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-      - --skip-character-set-client-handshake
-      - --skip-innodb-read-only-compressed
-    environment:
-      MYSQL_ROOT_PASSWORD: frappe123
-      MYSQL_DATABASE: frappe
-      MYSQL_USER: frappe
-      MYSQL_PASSWORD: frappe123
-    volumes:
-      - db_data:/var/lib/mysql
-    healthcheck:
-      test: mysqladmin ping -h localhost --password=frappe123
-      interval: 10s
-      retries: 5
-      start_period: 30s
-      timeout: 10s
+    # Test connection to Dokploy
+    Write-Info "Testing connection to Dokploy..."
+    $testConnection = $false
+    
+    if ($isCloudDeployment) {
+        Write-Info "Using Dokploy Cloud - testing API connectivity..."
+        try {
+            $testResponse = Invoke-WebRequest -Uri "https://app.dokploy.com" -Method GET -TimeoutSec 10 -UseBasicParsing
+            if ($testResponse.StatusCode -eq 200) {
+                $testConnection = $true
+                Write-Success "Successfully connected to Dokploy Cloud"
+            }
+        } catch {
+            Write-Warn "Cannot connect to Dokploy Cloud: $($_.Exception.Message)"
+        }
+    } else {
+        Write-Info "Testing self-hosted Dokploy connection..."
+        try {
+            $testConnection = Test-NetConnection -ComputerName $ServerIP -Port 3000 -InformationLevel Quiet -WarningAction SilentlyContinue
+            if (-not $testConnection) {
+                Write-Warn "Cannot connect to Dokploy on $ServerIP:3000"
+                Write-Info "Please ensure:"
+                Write-Info "  1. Dokploy is installed and running"
+                Write-Info "  2. Port 3000 is accessible (firewall/security groups)"
+                Write-Info "  3. Server IP is correct: $ServerIP"
+                Write-Info ""
+                Write-Info "To install Dokploy:"
+                Write-Info "  ssh root@$ServerIP"
+                Write-Info "  curl -sSL https://dokploy.com/install.sh | sh"
+            } else {
+                Write-Success "Successfully connected to self-hosted Dokploy"
+            }
+        } catch {
+            Write-Warn "Could not test connection: $($_.Exception.Message)"
+        }
+    }
 
-  # Redis Cache
-  redis-cache:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redis_cache_data:/data
+    # Check if Dokploy token is provided or prompt for it
+    if (-not $DokployToken) {
+        Write-Info "To automate deployment, we need your Dokploy API token."
+        Write-Info "Get it from: $dokployUrl/dashboard/settings/api-tokens"
+        $DokployToken = Read-Host "Enter Dokploy API Token (or press Enter to skip automation)"
+    }
+    
+    # Test API authentication first
+    if ($DokployToken) {
+        Write-Info "Testing API authentication..."
+        try {
+            $testAuth = Invoke-DokployAPI -Endpoint "auth/me" -Method "GET" -Token $DokployToken -BaseUrl $dokployUrl
+            Write-Success "API authentication successful!"
+        } catch {
+            Write-Warn "API authentication failed. This might be due to:"
+            Write-Info "  1. Invalid API token format"
+            Write-Info "  2. Dokploy Cloud API structure differences"  
+            Write-Info "  3. Token permissions or scope issues"
+            Write-Info ""
+            Write-Info "Let's proceed with manual deployment instructions instead."
+            $DokployToken = $null
+        }
+    }
 
-  # Redis Queue  
-  redis-queue:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redis_queue_data:/data
+    # Skip automation if connection failed and no token provided
+    if (-not $testConnection -and -not $DokployToken) {
+        Write-Warn "Skipping automation due to connection issues. Will generate manual deployment files."
+        $DokployToken = $null
+    }
 
-  # Configurator (runs once to setup config)
-  configurator:
-    image: frappe/erpnext:v15.27.0
-    restart: "no"
-    command:
-      - bash
-      - -c
-      - |
-        wait-for-it -t 120 db:3306;
-        wait-for-it -t 120 redis-cache:6379;
-        wait-for-it -t 120 redis-queue:6379;
-        export start=`date +%s`;
-        until [[ -n `mysql -h db -u frappe -pfrappe123 -e "SELECT * FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME='frappe'"` ]] && [[ `date +%s` -lt `expr $$start + 90` ]];
-        do
-          echo "Waiting for database to be ready...";
-          sleep 3;
-        done;
-        echo "Database is ready!";
-        bench set-config -g db_host db;
-        bench set-config -g redis_cache redis://redis-cache:6379;
-        bench set-config -g redis_queue redis://redis-queue:6379;
-        bench set-config -g redis_socketio redis://redis-cache:6379;
-        bench set-config -g socketio_port 3000;
-    environment:
-      DB_HOST: db
-      DB_PORT: 3306
-      REDIS_CACHE: redis://redis-cache:6379
-      REDIS_QUEUE: redis://redis-queue:6379
-      REDIS_SOCKETIO: redis://redis-cache:6379
-    volumes:
-      - sites_data:/home/frappe/frappe-bench/sites
-    depends_on:
-      db:
-        condition: service_healthy
-
-  # Site Creator (runs once to create ERPNext site)
-  create-site:
-    image: frappe/erpnext:v15.27.0
-    restart: "no"
-    command:
-      - bash
-      - -c
-      - |
-        wait-for-it -t 120 db:3306;
-        wait-for-it -t 120 redis-cache:6379;
-        wait-for-it -t 120 redis-queue:6379;
-        if [[ ! -d "sites/$siteName" ]]; then
-          echo "Creating new ERPNext site: $siteName";
-          bench new-site $siteName --no-mariadb-socket --mariadb-root-password frappe123 --install-app erpnext --admin-password '$AdminPassword';
-          bench --site $siteName set-config db_host db;
-          bench --site $siteName set-config redis_cache 'redis://redis-cache:6379';
-          bench --site $siteName set-config redis_queue 'redis://redis-queue:6379';
-          bench --site $siteName set-config redis_socketio 'redis://redis-cache:6379';
-        else
-          echo "Site $siteName already exists, skipping creation";
-        fi;
-        echo "Site setup completed successfully!";
-    environment:
-      SITE_NAME: $siteName
-      ADMIN_PASSWORD: $AdminPassword
-      DB_HOST: db
-      DB_PORT: 3306
-    volumes:
-      - sites_data:/home/frappe/frappe-bench/sites
-    depends_on:
-      - configurator
-
-  # Backend (Gunicorn)
-  backend:
-    image: frappe/erpnext:v15.27.0
-    restart: unless-stopped
-    command:
-      - bash
-      - -c
-      - |
-        wait-for-it -t 120 db:3306;
-        wait-for-it -t 120 redis-cache:6379;
-        wait-for-it -t 120 redis-queue:6379;
-        gunicorn --bind 0.0.0.0:8000 --threads 4 --timeout 120 frappe.app:application --preload;
-    environment:
-      SOCKETIO_PORT: 3000
-    volumes:
-      - sites_data:/home/frappe/frappe-bench/sites
-    depends_on:
-      - create-site
-
-  # Frontend (Nginx)
-  frontend:
-    image: frappe/erpnext:v15.27.0
-    restart: unless-stopped
-    command:
-      - bash  
-      - -c
-      - |
-        wait-for-it -t 180 backend:8000;
-        nginx-entrypoint.sh;
-    environment:
-      BACKEND: backend:8000
-      SOCKETIO: websocket:3000
-      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
-      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
-      UPSTREAM_REAL_IP_RECURSIVE: "off"
-      FRAPPE_SITE_NAME_HEADER: $siteName
-    volumes:
-      - sites_data:/home/frappe/frappe-bench/sites
-    ports:
-      - "80:8080"
-      - "443:8080"
-    depends_on:
-      - backend
-      - websocket
-
-  # WebSocket (Socket.IO)
-  websocket:
-    image: frappe/erpnext:v15.27.0
-    restart: unless-stopped
-    command:
-      - bash
-      - -c
-      - |
-        wait-for-it -t 120 redis-queue:6379;
-        node /home/frappe/frappe-bench/apps/frappe/socketio.js;
-    volumes:
-      - sites_data:/home/frappe/frappe-bench/sites
-    depends_on:
-      - redis-queue
-
-  # Scheduler
-  scheduler:
-    image: frappe/erpnext:v15.27.0
-    restart: unless-stopped
-    command:
-      - bash
-      - -c
-      - |
-        wait-for-it -t 120 db:3306;
-        wait-for-it -t 120 redis-cache:6379;
-        wait-for-it -t 120 redis-queue:6379;
-        bench schedule;
-    volumes:
-      - sites_data:/home/frappe/frappe-bench/sites
-    depends_on:
-      - create-site
-
-  # Queue Workers
-  queue-short:
-    image: frappe/erpnext:v15.27.0
-    restart: unless-stopped  
-    command:
-      - bash
-      - -c
-      - |
-        wait-for-it -t 120 redis-queue:6379;
-        bench worker --queue short;
-    volumes:
-      - sites_data:/home/frappe/frappe-bench/sites
-    depends_on:
-      - create-site
-
-  queue-long:
-    image: frappe/erpnext:v15.27.0
-    restart: unless-stopped
-    command:
-      - bash  
-      - -c
-      - |
-        wait-for-it -t 120 redis-queue:6379;
-        bench worker --queue long;
-    volumes:
-      - sites_data:/home/frappe/frappe-bench/sites
-    depends_on:
-      - create-site
-
-volumes:
-  sites_data:
-  db_data:
-  redis_cache_data:
-  redis_queue_data:
-"@
+    # Read the updated docker-compose file from the repository
+    $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $RepoRoot = Split-Path -Parent $ScriptDir
+    $ComposeFile = Join-Path $RepoRoot 'dokploy-docker-compose.yml'
+    
+    if (-not (Test-Path $ComposeFile)) {
+        Write-Err "dokploy-docker-compose.yml not found. Please ensure the file exists in the repository root."
+        exit 1
+    }
+    
+    # Read the compose content and replace placeholders
+    $composeContent = Get-Content $ComposeFile -Raw
+    $composeContent = $composeContent -replace '100\.100\.0\.100\.traefik\.me', $siteName
+    $composeContent = $composeContent -replace 'v3fS82sueJ84Ds9j', $AdminPassword
 
     # Save compose file
     $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
     $RepoRoot = Split-Path -Parent $ScriptDir
     $ComposeFile = Join-Path $RepoRoot 'dokploy-docker-compose.yml'
     
+    # If Dokploy token is provided, attempt automated deployment
+    if ($DokployToken) {
+        Write-Info "Attempting automated deployment via Dokploy API..."
+        
+        try {
+            # Create project
+            Write-Info "Creating project: erpnext-project"
+            $projectBody = @{
+                name = "erpnext-project"
+                description = "ERPNext deployment via automated script"
+            }
+            $project = Invoke-DokployAPI -Endpoint "projects" -Method "POST" -Body $projectBody -Token $DokployToken -BaseUrl $dokployUrl
+            $projectId = $project.projectId
+            Write-Success "Project created with ID: $projectId"
+            
+            # Create compose service
+            Write-Info "Creating compose service: erpnext-stack"
+            $serviceBody = @{
+                name = "erpnext-stack"
+                description = "ERPNext full stack deployment"
+                projectId = $projectId
+                composeFile = $composeContent
+                serviceType = "compose"
+            }
+            $service = Invoke-DokployAPI -Endpoint "compose" -Method "POST" -Body $serviceBody -Token $DokployToken -BaseUrl $dokployUrl
+            $serviceId = $service.composeId
+            Write-Success "Compose service created with ID: $serviceId"
+            
+            # Configure domain if provided
+            if ($DomainName) {
+                Write-Info "Configuring domain: $DomainName"
+                $domainBody = @{
+                    host = $DomainName
+                    path = "/"
+                    port = 80
+                    https = $true
+                    certificateType = "letsencrypt"
+                    composeId = $serviceId
+                }
+                Invoke-DokployAPI -Endpoint "domains" -Method "POST" -Body $domainBody -Token $DokployToken -BaseUrl $dokployUrl
+                Write-Success "Domain configured with SSL"
+            }
+            
+            # Deploy the service
+            Write-Info "Deploying ERPNext stack..."
+            $deployBody = @{
+                composeId = $serviceId
+            }
+            $deployment = Invoke-DokployAPI -Endpoint "compose/$serviceId/deploy" -Method "POST" -Body $deployBody -Token $DokployToken -BaseUrl $dokployUrl
+            Write-Success "Deployment initiated!"
+            
+            # Monitor deployment status
+            Write-Info "Monitoring deployment progress (this may take 5-10 minutes)..."
+            $timeout = 600 # 10 minutes
+            $elapsed = 0
+            $interval = 30
+            
+            do {
+                Start-Sleep $interval
+                $elapsed += $interval
+                
+                try {
+                    $status = Invoke-DokployAPI -Endpoint "compose/$serviceId" -Token $DokployToken -BaseUrl $dokployUrl
+                    Write-Info "Deployment status: $($status.buildStatus) (${elapsed}s elapsed)"
+                    
+                    if ($status.buildStatus -eq "success") {
+                        Write-Success "Deployment completed successfully!"
+                        break
+                    } elseif ($status.buildStatus -eq "error") {
+                        Write-Err "Deployment failed. Check Dokploy logs for details."
+                        break
+                    }
+                } catch {
+                    Write-Warn "Could not check deployment status: $($_.Exception.Message)"
+                }
+                
+            } while ($elapsed -lt $timeout)
+            
+            if ($elapsed -ge $timeout) {
+                Write-Warn "Deployment monitoring timed out. Check Dokploy UI for status."
+            }
+            
+        } catch {
+            Write-Err "Automated deployment failed: $($_.Exception.Message)"
+            Write-Info "Falling back to manual deployment instructions..."
+        }
+    } else {
+        Write-Info "No API token provided. Skipping automated deployment."
+    }
+    
+    # Save the customized compose file
     $composeContent | Set-Content -Path $ComposeFile -Encoding UTF8
-    
-    Write-Success "Docker Compose file created: dokploy-docker-compose.yml"
-    
-    # Create deployment instructions
-    $instructions = @"
-# ERPNext Dokploy Deployment Instructions
-
-## Prerequisites
-1. A VPS/server running Ubuntu 24.04
-2. Dokploy installed and running
-3. Domain name pointed to your server IP (optional but recommended)
-
-## Deployment Steps
-
-### 1. Install Dokploy on your server:
-```bash
-ssh root@$ServerIP
-curl -sSL https://dokploy.com/install.sh | sh
-```
-
-### 2. Access Dokploy UI:
-Open: http://$ServerIP:3000
-
-### 3. Create Project:
-- Click "+ Create Project"
-- Name: erpnext-project
-
-### 4. Deploy using Docker Compose:
-- Click "+ Create Service" → "Compose"
-- Name: erpnext-stack
-- Copy the contents from dokploy-docker-compose.yml
-- Configure domain (if using custom domain):
-  - Go to Domains tab
-  - Update Host field to your domain
-  - Enable HTTPS with Let's Encrypt
-
-### 5. Deploy:
-- Click "Deploy" button
-- Wait for deployment to complete (5-10 minutes)
-
-## Post-Deployment
-
-### Access your ERPNext:
-- URL: http://$siteName (or https:// if SSL configured)
-- Username: Administrator  
-- Password: $AdminPassword
-
-### Monitor deployment:
-- Check Logs tab in Dokploy for any issues
-- Look for "create-site" container logs for site creation progress
-
-## Services Created:
-- **Database**: MariaDB 10.6 with automatic setup
-- **Cache**: Redis for caching
-- **Queue**: Redis for background jobs
-- **Application**: ERPNext with all required services
-
-## Backup:
-Add these services to your docker-compose.yml for automated backups:
-- Database backup to external storage
-- Site files backup
-- Automated backup scheduling via cron
-
-## Troubleshooting:
-- Check container logs in Dokploy UI
-- Verify all containers are running
-- Ensure domain DNS is properly configured
-- Check firewall rules (ports 80, 443, 3000)
-"@
-
-    $InstructionsFile = Join-Path $RepoRoot 'DOKPLOY-DEPLOYMENT.md'
-    $instructions | Set-Content -Path $InstructionsFile -Encoding UTF8
+    Write-Success "Updated dokploy-docker-compose.yml with your configuration"
 
     Write-Host ""
-    Write-Success "Dokploy deployment files created successfully!"
+    Write-Success "ERPNext Dokploy deployment completed!"
     Write-Host "==========================================" -ForegroundColor Yellow
-    Write-Host "Docker Compose:   dokploy-docker-compose.yml" -ForegroundColor Green
-    Write-Host "Instructions:     DOKPLOY-DEPLOYMENT.md" -ForegroundColor Green
-    Write-Host ""
     Write-Host "Site Configuration:" -ForegroundColor Cyan
     Write-Host "  URL:            http://$siteName" -ForegroundColor Green
     Write-Host "  Username:       Administrator" -ForegroundColor Green  
     Write-Host "  Password:       $AdminPassword" -ForegroundColor Green
+    Write-Host "  Dokploy UI:     $dokployUrl" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Next Steps:" -ForegroundColor Yellow
-    Write-Host "1. Install Dokploy on your server: $ServerIP" -ForegroundColor White
-    Write-Host "2. Access Dokploy UI: http://$ServerIP:3000" -ForegroundColor White
-    Write-Host "3. Follow instructions in DOKPLOY-DEPLOYMENT.md" -ForegroundColor White
+    
+    if ($DokployToken) {
+        Write-Host "Automated Deployment:" -ForegroundColor Cyan
+        Write-Host "✅ Project and service created automatically" -ForegroundColor Green
+        Write-Host "✅ ERPNext stack deployed" -ForegroundColor Green
+        if ($DomainName) {
+            Write-Host "✅ SSL certificate configured for $DomainName" -ForegroundColor Green
+        }
+        Write-Host "" 
+        Write-Host "Next Steps:" -ForegroundColor Yellow
+        Write-Host "1. Wait 2-3 minutes for all services to start" -ForegroundColor White
+        Write-Host "2. Access your ERPNext at: http://$siteName" -ForegroundColor White
+        Write-Host "3. Monitor progress in Dokploy UI: $dokployUrl" -ForegroundColor White
+    } else {
+        Write-Host "Manual Deployment Required:" -ForegroundColor Yellow
+        Write-Host "1. Access Dokploy UI: $dokployUrl" -ForegroundColor White
+        Write-Host "2. Create new project: 'erpnext-project'" -ForegroundColor White
+        Write-Host "3. Create compose service using dokploy-docker-compose.yml" -ForegroundColor White
+        Write-Host "4. Deploy and wait 5-10 minutes" -ForegroundColor White
+    }
     Write-Host "==========================================" -ForegroundColor Yellow
 
 } catch {
