@@ -1,26 +1,17 @@
-# railway.toml
-
-# See https://docs.railway.com/reference/config-as-code
-# for all available options.
-
 [build]
-# Instruct Railway to build the service using the Dockerfile in the root.
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+builder = "dockerfile"
 
 [deploy]
-# Specify the internal port the application listens on. This is crucial for health checks and routing.
-port = 8000
-
-
-# The start command is inherited from the Docker image's entrypoint, so it's not needed here.
-
-# Restart the service if it fails, up to 10 times.
+startCommand = "bench start"
+healthcheckPath = "/api/method/ping"
+healthcheckTimeout = 600
 restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
+restartPolicyMaxRetries = 5
 
-# Use Frappe's built-in ping endpoint for health checks.
-# This ensures the application is responsive before the deployment is considered successful.
-healthcheckPath = "/api/method/frappe.utils.ping"
-healthcheckTimeout = 300
-healthcheckInterval = 60
+[[services]]
+name = "mariadb"
+plugin = "mariadb"
+
+[[services]]
+name = "redis"
+plugin = "redis"

@@ -2,6 +2,12 @@
 
 This repository lets you spin up a complete Frappe/ERPNext stack locally on Windows with a single PowerShell script. It uses the official `frappe_docker/pwd.yml` for an all‑in‑one setup.
 
+## Deployment
+
+### Local Quick Start (Docker)
+
+This repository lets you spin up a complete Frappe/ERPNext stack locally on Windows with a single PowerShell script. It uses the official `frappe_docker/pwd.yml` for an all‑in‑one setup.
+
 - Backend (Frappe/ERPNext)
 - Frontend (Nginx)
 - MariaDB 10.6
@@ -84,12 +90,30 @@ These volumes persist across container restarts. Deleting them will erase data.
 
 ## Cloud Deployment
 
-### Railway
+This template also includes a one-click deployment to the [Railway](https://railway.app) platform.
 
-This repository is pre-configured for easy deployment to [Railway](https://railway.app).
+**Prerequisites:**
 
--   **Instructions**: See [`docs/RAILWAY.md`](./docs/RAILWAY.md) for a full step-by-step guide.
--   **Automated Script**: Use [`scripts/deploy-railway.ps1`](./scripts/deploy-railway.ps1) to automate setting environment variables and triggering a deployment.
+1.  Install the Railway CLI: `npm i -g @railway/cli`
+2.  Login to your Railway account: `railway login`
+
+**Deployment:**
+
+To deploy the application to Railway, run the following command:
+
+```powershell
+./deploy-railway.ps1
+```
+
+The script will automatically provision a new project, create MariaDB and Redis services, and deploy the Frappe/ERPNext application. If you don't provide a password, a secure one will be generated.
+
+To provide your own password, run the script and a secure prompt will appear:
+
+```powershell
+./deploy-railway.ps1 -Credential (Get-Credential)
+```
+
+The script will then output the URL and administrator credentials.
 
 ## Repo notes
 - `run-local.ps1` automates the full local lifecycle.
@@ -98,7 +122,7 @@ This repository is pre-configured for easy deployment to [Railway](https://railw
 
 ## Security
 - The script prints the Administrator password on completion. Store it securely.
-- For repeatable credentials, pass `-AdminPassword` explicitly.
+- For repeatable credentials, use the `-Credential` parameter.
 
 ## License
 This repository leverages the official `frappe_docker` setup. See their repository for license details of the images and compose files.

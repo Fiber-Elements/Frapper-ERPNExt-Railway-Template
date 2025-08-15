@@ -1,41 +1,45 @@
-#!/bin/sh
-# railway-entrypoint.sh
+#!/bin/bash
+set -eo pipefail
 
-# This script is executed by the preDeployCommand in railway.toml.
-# It parses the DATABASE_URL and REDIS_URL provided by Railway into the individual
-# environment variables that the official Frappe Docker image expects.
+# Default to the official entrypoint
+ENTRYPOINT_CMD="/usr/local/bin/docker-entrypoint.sh"
 
-set -e
+# If the site doesn't exist, we need to bootstrap it
+if [ ! -d "sites/${FRAPPE_SITE_NAME_HEADER}" ]; then
+  echo "INFO: Site ${FRAPPE_SITE_NAME_HEADER} not found. Starting bootstrap..."
 
-if [ -n "$DATABASE_URL" ]; then
-    # Parse DATABASE_URL
-    DB_DETAILS=$(echo $DATABASE_URL | sed -e 's/mysql:\/\///g')
-    DB_USER=$(echo $DB_DETAILS | cut -d':' -f1)
-    DB_PASSWORD=$(echo $DB_DETAILS | cut -d':' -f2 | cut -d'@' -f1)
-    DB_HOST=$(echo $DB_DETAILS | cut -d'@' -f2 | cut -d':' -f1)
-    DB_PORT=$(echo $DB_DETAILS | cut -d':' -f3 | cut -d'/' -f1)
+  # Use Railway's provided service variables
+  : "${MARIADB_HOST:?MARIADB_HOST is not set}"
+  : "${MARIADB_PORT:?MARIADB_PORT is not set}"
+  : "${MARIADB_USER:?MARIADB_USER is not set}"
+  : "${MARIADB_PASSWORD:?MARIADB_PASSWORD is not set}"
+  : "${MARIADB_DATABASE:?MARIADB_DATABASE is not set}"
+  : "${REDIS_HOST:?REDIS_HOST is not set}"
+  : "${REDIS_PORT:?REDIS_PORT is not set}"
+  : "${ADMIN_PASSWORD:?ADMIN_PASSWORD is not set}"
+  : "${FRAPPE_SITE_NAME_HEADER:?FRAPPE_SITE_NAME_HEADER is not set}"
 
-    # Export variables for Frappe
-    export DB_HOST
-    export DB_PORT
-    export DB_USER
-    export DB_PASSWORD
+  # Configure the database and Redis connections
+  bench set-config -g db_host "${MARIADB_HOST}"
+  bench set-config -g db_port "${MARIADB_PORT}"
+  bench set-config -g redis_cache "redis://${REDIS_HOST}:${REDIS_PORT}"
+  bench set-config -g redis_queue "redis://${REDIS_HOST}:${REDIS_PORT}"
+  bench set-config -g redis_socketio "redis://${REDIS_HOST}:${REDIS_PORT}"
 
-    echo "Database variables exported."
+  # Create the new site
+  bench new-site "${FRAPPE_SITE_NAME_HEADER}" \
+    --db-name "${MARIADB_DATABASE}" \
+    --mariadb-root-username "${MARIADB_USER}" \
+    --mariadb-root-password "${MARIADB_PASSWORD}" \
+    --admin-password "${ADMIN_PASSWORD}" \
+    --install-app erpnext \
+    --set-default
+
+  echo "INFO: Bootstrap complete. Site created."
+else
+  echo "INFO: Site ${FRAPPE_SITE_NAME_HEADER} already exists."
 fi
 
-if [ -n "$REDIS_URL" ]; then
-    # Parse REDIS_URL
-    REDIS_DETAILS=$(echo $REDIS_URL | sed -e 's/redis:\/\///g')
-
-    # Export variables for Frappe
-    export REDIS_CACHE="redis://$REDIS_DETAILS"
-    export REDIS_QUEUE="redis://$REDIS_DETAILS"
-
-    echo "Redis variables exported."
-fi
-
-echo "Starting Frappe entrypoint..."
-
-# Execute the original entrypoint command passed to this script
-exec "$@"
+# Execute the original entrypoint with any provided arguments
+echo "INFO: Starting Frappe services..."
+exec "$ENTRYPOINT_CMD" "$@"
