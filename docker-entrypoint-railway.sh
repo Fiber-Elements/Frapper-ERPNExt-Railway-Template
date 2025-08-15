@@ -24,15 +24,27 @@ export REDIS_CACHE_URL=${REDIS_CACHE_URL:-}
 export REDIS_QUEUE_URL=${REDIS_QUEUE_URL:-}
 export REDIS_SOCKETIO_URL=${REDIS_SOCKETIO_URL:-$REDIS_CACHE_URL}
 
-# Parse Redis URLs to get host:port format
+# Parse Redis URLs to get host:port format for Frappe config
 if [[ -n "$REDIS_CACHE_URL" ]]; then
-    REDIS_CACHE=$(echo "$REDIS_CACHE_URL" | sed -e 's|redis://||' -e 's|@.*||' -e 's|.*@||' -e 's|/.*||')
+    # Handle both redis://host:port and redis://user:pass@host:port formats
+    REDIS_CACHE=$(echo "$REDIS_CACHE_URL" | sed -E 's|redis://([^@]*@)?([^/:]+)(:[0-9]+)?.*|\2\3|')
+    # If no port specified, add default Redis port
+    if [[ ! "$REDIS_CACHE" =~ :[0-9]+$ ]]; then
+        REDIS_CACHE="${REDIS_CACHE}:6379"
+    fi
     export REDIS_CACHE
+    echo "[DEBUG] Parsed Redis cache: $REDIS_CACHE from URL: $REDIS_CACHE_URL"
 fi
 
 if [[ -n "$REDIS_QUEUE_URL" ]]; then
-    REDIS_QUEUE=$(echo "$REDIS_QUEUE_URL" | sed -e 's|redis://||' -e 's|@.*||' -e 's|.*@||' -e 's|/.*||')
+    # Handle both redis://host:port and redis://user:pass@host:port formats
+    REDIS_QUEUE=$(echo "$REDIS_QUEUE_URL" | sed -E 's|redis://([^@]*@)?([^/:]+)(:[0-9]+)?.*|\2\3|')
+    # If no port specified, add default Redis port
+    if [[ ! "$REDIS_QUEUE" =~ :[0-9]+$ ]]; then
+        REDIS_QUEUE="${REDIS_QUEUE}:6379"
+    fi
     export REDIS_QUEUE
+    echo "[DEBUG] Parsed Redis queue: $REDIS_QUEUE from URL: $REDIS_QUEUE_URL"
 fi
 
 echo "[INFO] Configuration:"
