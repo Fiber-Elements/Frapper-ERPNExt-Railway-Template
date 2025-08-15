@@ -31,13 +31,14 @@ function Get-Redis-Url($redisName) {
         Write-Info "Attempting to get Redis URL for '$redisName' (Attempt $($i+1)/$maxRetries)..."
         try {
             $status = & flyctl redis status $redisName 2>$null
-            $endpointMatch = $status | Select-String 'Endpoint\s+(.+)'
-            $passwordMatch = $status | Select-String 'Password\s+(.+)'
-
-            if ($endpointMatch -and $passwordMatch) {
-                $endpoint = $endpointMatch.Matches[0].Groups[1].Value.Trim()
-                $password = $passwordMatch.Matches[0].Groups[1].Value.Trim()
-                $url = "redis://:$($password)@$($endpoint)"
+            $privateUrlMatch = $status | Select-String 'Private URL\s*=\s*(.+)'
+            
+            if ($privateUrlMatch) {
+                $url = $privateUrlMatch.Matches[0].Groups[1].Value.Trim()
+                # Ensure the URL has the port if missing
+                if ($url -notmatch ':6379$') {
+                    $url = $url + ':6379'
+                }
                 Write-Success "Found Redis URL for '$redisName'"
                 return $url
             }
@@ -55,14 +56,14 @@ function Deploy-MariaDB($AppName, $Region) {
     Write-Info "Deploying MariaDB app: $dbAppName"
 
     try {
-        & flyctl apps create $dbAppName --org personal 2>$null
+        & flyctl apps create $dbAppName --org personal 2>$null | Out-Host
         Write-Success "MariaDB app created: $dbAppName"
     } catch {
         Write-Info "MariaDB app might already exist, continuing..."
     }
 
     try {
-        & flyctl volumes create mariadb_data --app $dbAppName --region $Region --size 10 -y
+        & flyctl volumes create mariadb_data --app $dbAppName --region $Region --size 10 -y | Out-Host
         Write-Success "MariaDB volume created."
     } catch {
         Write-Info "MariaDB volume might already exist, continuing..."
@@ -70,7 +71,12 @@ function Deploy-MariaDB($AppName, $Region) {
 
     $dbRootPassword = New-RandomPassword 20
     Write-Info "Setting MariaDB root password secret..."
-    & flyctl secrets set --app $dbAppName "MARIADB_ROOT_PASSWORD=$dbRootPassword"
+    try {
+        & flyctl secrets set --app $dbAppName "MARIADB_ROOT_PASSWORD=$dbRootPassword" | Out-Host
+        Write-Success "MariaDB password secret set."
+    } catch {
+        Write-Info "Failed to set MariaDB password secret, but continuing..."
+    }
 
     # Update the mariadb.toml with the correct app name and region
     $mariaTomlPath = Join-Path $PSScriptRoot 'mariadb.toml'
@@ -84,13 +90,17 @@ function Deploy-MariaDB($AppName, $Region) {
 
     Write-Info "Deploying MariaDB container..."
     try {
-        & flyctl deploy --app $dbAppName --config $tempMariaTomlPath --ha=false
+        & flyctl deploy --app $dbAppName --config $tempMariaTomlPath --ha=false | Out-Host
         Write-Success "MariaDB deployed successfully."
+    } catch {
+        Write-Info "MariaDB deployment might have had issues, but continuing..."
     } finally {
         Remove-Item $tempMariaTomlPath -ErrorAction SilentlyContinue
     }
 
-    return @{ Host = "$dbAppName.internal"; Port = 3306; Password = $dbRootPassword }
+    $dbInfo = [pscustomobject]@{ Host = "$dbAppName.internal"; Port = 3306; Password = $dbRootPassword }
+    Write-Info "Returning database info: Host=$($dbInfo.Host), Port=$($dbInfo.Port)"
+    return $dbInfo
 }
 
 try {
@@ -157,31 +167,88 @@ try {
         # Deploy MariaDB
         $dbInfo = Deploy-MariaDB -AppName $AppName -Region $Region
 
+        # Coerce to single PSCustomObject if any stray pipeline output slipped through
+        if ($dbInfo -is [object[]]) {
+            Write-Warn "dbInfo returned an array; selecting the PSCustomObject element."
+            $dbInfo = $dbInfo | Where-Object { $_ -is [pscustomobject] } | Select-Object -First 1
+        }
+
+        # Validate dbInfo structure before use
+        if ($null -eq $dbInfo) {
+            Write-Err "Deploy-MariaDB returned null dbInfo"
+            throw "Database info is null"
+        }
+        Write-Info ("dbInfo type: {0}" -f ($dbInfo.GetType().FullName))
+        try {
+            $null = $dbInfo.Host
+            $null = $dbInfo.Port
+            $null = $dbInfo.Password
+            Write-Info "dbInfo values -> Host=$($dbInfo.Host), Port=$($dbInfo.Port)"
+        } catch {
+            Write-Err "dbInfo object missing expected properties Host/Port/Password. Raw:" 
+            $dbInfo | Format-List * | Out-String | ForEach-Object { Write-Host $_ }
+            throw
+        }
+
         # Check for and create Redis instances if they don't exist
         Write-Info "Checking for existing Redis instances..."
-        $redisList = & flyctl redis list
+        $redisListOutput = & flyctl redis list 2>$null
         $redisCacheName = "$AppName-redis-cache"
         $redisQueueName = "$AppName-redis-queue"
 
-        if ($redisList -like "*$redisCacheName*") {
-            Write-Info "Redis cache '$redisCacheName' already exists, skipping creation."
+        # Check if cache instance exists
+        $cacheExists = $false
+        foreach ($line in $redisListOutput) {
+            if ($line -like "*$redisCacheName*") {
+                $cacheExists = $true
+                break
+            }
+        }
+
+        # Handle Redis cache
+        if ($cacheExists) {
+            Write-Info "Redis cache '$redisCacheName' already exists, getting URL..."
+            $redisCacheUrl = Get-Redis-Url -redisName $redisCacheName
         } else {
             Write-Info "Creating Redis cache instance..."
-            & flyctl redis create --name $redisCacheName --region $Region --org personal
+            $cacheOutput = & flyctl redis create --name $redisCacheName --region $Region --org personal --no-replicas --enable-eviction 2>&1
             Write-Success "Redis cache created: $redisCacheName"
+            # Extract URL from creation output
+            $cacheUrlMatch = ($cacheOutput | Out-String) -match 'redis://[^\s]+'
+            if ($cacheUrlMatch) {
+                $redisCacheUrl = $matches[0]
+                Write-Info "Extracted Redis cache URL from creation output"
+            } else {
+                $redisCacheUrl = Get-Redis-Url -redisName $redisCacheName
+            }
         }
 
-        if ($redisList -like "*$redisQueueName*") {
-            Write-Info "Redis queue '$redisQueueName' already exists, skipping creation."
+        # Check if queue instance exists
+        $queueExists = $false
+        foreach ($line in $redisListOutput) {
+            if ($line -like "*$redisQueueName*") {
+                $queueExists = $true
+                break
+            }
+        }
+
+        # Handle Redis queue
+        if ($queueExists) {
+            Write-Info "Redis queue '$redisQueueName' already exists, getting URL..."
+            $redisQueueUrl = Get-Redis-Url -redisName $redisQueueName
         } else {
             Write-Info "Creating Redis queue instance..."
-            & flyctl redis create --name $redisQueueName --region $Region --org personal
+            $queueOutput = & flyctl redis create --name $redisQueueName --region $Region --org personal --no-replicas --disable-eviction 2>&1
             Write-Success "Redis queue created: $redisQueueName"
+            # Extract URL from creation output
+            $queueUrlMatch = ($queueOutput | Out-String) -match 'redis://[^\s]+'
+            if ($queueUrlMatch) {
+                $redisQueueUrl = $matches[0]
+                Write-Info "Extracted Redis queue URL from creation output"
+            } else {
+                $redisQueueUrl = Get-Redis-Url -redisName $redisQueueName
+            }
         }
-
-        # Get Redis URLs
-        $redisCacheUrl = Get-Redis-Url -redisName $redisCacheName
-        $redisQueueUrl = Get-Redis-Url -redisName $redisQueueName
 
         # Set application secrets
         Write-Info "Setting application secrets..."

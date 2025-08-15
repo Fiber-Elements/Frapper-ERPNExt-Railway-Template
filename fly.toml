@@ -31,10 +31,9 @@ BENCH_INIT = "1"
 # REDIS_CACHE_URL will be injected by Fly.io
 # REDIS_QUEUE_URL will be injected by Fly.io
 
-[mounts]
+[[mounts]]
 source = "frappe_sites"
 destination = "/home/frappe/frappe-bench/sites"
-initial_size = "5gb"
 
 [[vm]]
 memory = "2gb"
@@ -50,9 +49,15 @@ name = "create-site"
 cmd = ["new"]
 
 [[processes]]
-name = "web"
-entrypoint = ["bash", "-lc"]
-cmd = ["node /home/frappe/frappe-bench/apps/frappe/socketio.js & start & exec /usr/local/bin/nginx-entrypoint.sh"]
+name = "frontend"
+cmd = ["nginx-entrypoint.sh"]
+
+[[processes]]
+name = "backend"
+
+[[processes]]
+name = "websocket"
+cmd = ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
 
 [[processes]]
 name = "scheduler"
@@ -77,7 +82,7 @@ cmd = ["worker"]
 WORKER_TYPE = "long"
 
 [[services]]
-processes = ["web"]
+processes = ["frontend"]
 internal_port = 8080
 protocol = "tcp"
 auto_stop_machines = true
@@ -100,6 +105,21 @@ restart_limit = 6
 
 [deploy]
 strategy = "rolling"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
