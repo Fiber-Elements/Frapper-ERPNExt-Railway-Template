@@ -9,8 +9,7 @@ RUN apt-get update && apt-get install -y \
     jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Create frappe user and set home directory
-RUN useradd -ms /bin/bash frappe
+# frappe user already exists in base image frappe/erpnext:v15.75.1
 
 # Create supervisord configuration directory
 RUN mkdir -p /etc/supervisor/conf.d
