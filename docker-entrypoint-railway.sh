@@ -110,6 +110,11 @@ if [[ ! -L logs ]]; then
     ln -sf "$VOLUME_PATH/logs" logs
 fi
 
+# Function to extract host:port from a URL
+extract_host_port() {
+    echo "$1" | sed -e 's;redis://;;' -e 's;/.*$;;'
+}
+
 # Wait for database and Redis to be available
 if [[ -n "$DB_HOST" ]]; then
     echo "[INFO] Waiting for database at $DB_HOST:$DB_PORT..."

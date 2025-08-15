@@ -20,8 +20,17 @@ COPY --chown=frappe:frappe docker-entrypoint-railway.sh /home/frappe/docker-entr
 RUN chmod +x /home/frappe/docker-entrypoint-railway.sh
 
 # Create single persistent data directory for Railway's single volume limitation
-RUN mkdir -p /home/frappe/frappe-bench/persistent && \
-    chown -R frappe:frappe /home/frappe/frappe-bench
+# Create a single, predictable mount point for the volume.
+# The user will mount their Railway volume to this path.
+RUN mkdir -p /home/frappe/persistent && \
+    chown -R frappe:frappe /home/frappe/persistent
+VOLUME /home/frappe/persistent
+
+# Create frappe user and set home directory
+RUN useradd -ms /bin/bash frappe
+
+ENV HOME /home/frappe
+WORKDIR $HOME
 
 # Switch back to frappe user
 USER frappe
