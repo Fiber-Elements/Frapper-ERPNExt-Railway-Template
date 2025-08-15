@@ -9,6 +9,13 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+# Specify the internal port the application listens on. This is crucial for health checks and routing.
+port = 8000
+
+# This command runs before the application starts. It parses the connection strings
+# provided by Railway into the individual environment variables that the Frappe image expects.
+preDeployCommand = "export DB_HOST=$(echo $DATABASE_URL | cut -d'@' -f2 | cut -d':' -f1) && export DB_PORT=$(echo $DATABASE_URL | cut -d':' -f4 | cut -d'/' -f1) && export DB_USER=$(echo $DATABASE_URL | cut -d':' -f2 | cut -d'/' -f3) && export DB_PASSWORD=$(echo $DATABASE_URL | cut -d':' -f3 | cut -d'@' -f1) && export REDIS_CACHE=redis://$(echo $REDIS_URL | cut -d'/' -f3) && export REDIS_QUEUE=redis://$(echo $REDIS_URL | cut -d'/' -f3)"
+
 # The start command is inherited from the Docker image's entrypoint, so it's not needed here.
 
 # Restart the service if it fails, up to 10 times.

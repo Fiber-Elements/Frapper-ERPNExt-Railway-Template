@@ -25,7 +25,16 @@ Your application requires a MariaDB database and a Redis instance. Add them as s
 
 Railway will automatically provision these services and make their connection details available as environment variables.
 
-## 3. Configure Environment Variables
+## 3. Configure Volume
+
+Your application requires a persistent volume to store site-specific data, such as uploaded files and configuration.
+
+1.  In your application's service settings on Railway, go to the **Volumes** tab.
+2.  Add a new volume and set the **Mount Path** to `/home/frappe/frappe-bench/sites`.
+
+**This step is critical.** Without a correctly mounted volume, your site data will be lost on every deployment, and the application will fail to start correctly.
+
+## 4. Configure Environment Variables
 
 Your Frappe/ERPNext service needs to connect to the database and Redis. Railway exposes service variables automatically. You will need to reference them in your application's service configuration.
 
