@@ -7,7 +7,6 @@
 frappe_docker/
 
 # Ignore scripts and documentation not needed in the image
-scripts/
 docs/
 
 # Ignore local environment files
