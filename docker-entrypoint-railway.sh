@@ -44,12 +44,15 @@ echo "  - Redis Cache: $REDIS_CACHE"
 echo "  - Redis Queue: $REDIS_QUEUE"
 echo "  - Site Name Header: $FRAPPE_SITE_NAME_HEADER"
 
-# Railway volume handling - detect actual mount point
+# Railway volume handling - use the mounted volume path directly
+# Railway mounts volume at a dynamic path, use environment or detect
 VOLUME_PATH="/home/frappe/frappe-bench/persistent"
+
+# If the expected path doesn't exist, find the actual Railway volume mount
 if [[ ! -d "$VOLUME_PATH" ]]; then
-    # Check for Railway's actual volume mount paths
+    # Look for Railway volume mount patterns
     for possible_path in /var/lib/containers/railwayapp/bind-mounts/*/vol_*; do
-        if [[ -d "$possible_path" ]]; then
+        if [[ -d "$possible_path" && -w "$possible_path" ]]; then
             VOLUME_PATH="$possible_path"
             echo "[INFO] Found Railway volume at: $VOLUME_PATH"
             break
@@ -57,9 +60,20 @@ if [[ ! -d "$VOLUME_PATH" ]]; then
     done
 fi
 
-# Create directory structure in the volume
-echo "[INFO] Creating directories in volume: $VOLUME_PATH"
-mkdir -p "$VOLUME_PATH/sites" "$VOLUME_PATH/logs"
+# Ensure we have write permissions and create directory structure
+echo "[INFO] Using volume path: $VOLUME_PATH"
+echo "[INFO] Volume permissions: $(ls -la "$(dirname "$VOLUME_PATH")" 2>/dev/null || echo 'Cannot access parent dir')"
+
+# Create directory structure in the volume with proper error handling
+if mkdir -p "$VOLUME_PATH/sites" "$VOLUME_PATH/logs" 2>/dev/null; then
+    echo "[INFO] Successfully created directories in volume"
+else
+    echo "[ERROR] Failed to create directories in volume. Trying alternative approach..."
+    # Fallback: create in /tmp and link if volume creation fails
+    mkdir -p /tmp/frappe_sites /tmp/frappe_logs
+    VOLUME_PATH="/tmp"
+    echo "[WARNING] Using temporary storage - data will not persist across deployments"
+fi
 
 # Create symbolic links to maintain expected paths
 if [[ ! -L sites ]]; then
