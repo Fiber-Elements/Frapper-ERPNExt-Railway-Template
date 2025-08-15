@@ -9,7 +9,7 @@ param (
     [string]$Region = 'europe-west1',
 
     [Parameter(Mandatory = $false)]
-    [string]$Zone = "$($Region)-b",
+    [string]$Zone = 'europe-west1-b',
 
     [Parameter(Mandatory = $false)]
     [string]$InstanceBaseName = "erpnext-$(Get-Random -Minimum 1000 -Maximum 9999)",
@@ -25,7 +25,7 @@ param (
 
     [Parameter(Mandatory = $false)]
     [string]$RedisTier = 'BASIC', # BASIC or STANDARD_HA
-    
+
     [Parameter(Mandatory = $false)]
     [string]$RedisSizeGb = '1'
 )
@@ -64,12 +64,42 @@ if (-not $peering) {
 Write-Host "Provisioning Cloud SQL for MariaDB instance '$SqlInstanceName'... (This may take 10-15 minutes)"
 # For MariaDB compatibility, Cloud SQL uses MYSQL_8_0 as the database version flag.
 & gcloud sql instances create $SqlInstanceName --database-version=MYSQL_8_0 --tier=$SqlTier --region=$Region --root-password=$DbRootPassword --network=default --no-assign-ip
+# Wait for instance to be RUNNABLE
+Write-Host "Waiting for Cloud SQL instance to be ready..."
+while ($true) {
+    $status = (& gcloud sql instances describe $SqlInstanceName --format="value(state)")
+    if ($status -eq 'RUNNABLE') {
+        Write-Host "Cloud SQL instance is RUNNABLE."
+        break
+    }
+    if ($status -eq 'FAILED' -or $status -eq 'SUSPENDED') {
+        Write-Error "Cloud SQL instance entered a failed state: $status"
+        exit 1
+    }
+    Write-Host "Current status: $status. Waiting 30 seconds..."
+    Start-Sleep -Seconds 30
+}
 $SqlIpAddress = (& gcloud sql instances describe $SqlInstanceName --format="value(ipAddresses.privateIpAddress)")
 Write-Host "Cloud SQL instance created with private IP: $SqlIpAddress"
 
 # --- Provision Memorystore (Redis) ---
 Write-Host "Provisioning Memorystore for Redis instance '$RedisInstanceName'... (This may take 5-10 minutes)"
 & gcloud redis instances create $RedisInstanceName --size=$RedisSizeGb --region=$Region --tier=$RedisTier --redis-version=redis_7_2 --network=default
+# Wait for Redis instance to be READY
+Write-Host "Waiting for Memorystore instance to be ready..."
+while ($true) {
+    $status = (& gcloud redis instances describe $RedisInstanceName --region=$Region --format="value(state)")
+    if ($status -eq 'READY') {
+        Write-Host "Memorystore instance is READY."
+        break
+    }
+    if ($status -like '*FAILED*' -or $status -eq 'SUSPENDING') {
+        Write-Error "Memorystore instance entered a failed state: $status"
+        exit 1
+    }
+    Write-Host "Current status: $status. Waiting 15 seconds..."
+    Start-Sleep -Seconds 15
+}
 $RedisIpAddress = (& gcloud redis instances describe $RedisInstanceName --region=$Region --format="value(host)")
 Write-Host "Memorystore instance created with host: $RedisIpAddress"
 

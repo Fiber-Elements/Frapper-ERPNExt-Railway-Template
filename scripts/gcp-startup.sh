@@ -5,7 +5,7 @@
 # - Runs configurator & create-site, starts app services
 # - Sets Administrator password and prints public URL hint
 
-set -euo pipefail
+set -xeuo pipefail
 
 # -------- Config via metadata / env --------
 get_md() {
@@ -25,7 +25,17 @@ REDIS_SOCKETIO="$(get_md REDIS_SOCKETIO)"
 REPO_DIR="/opt/frappe_docker"
 OVERRIDE_FILE="/opt/frappe_override.yml"
 
-# --- Validate required config ---
+# --- Log and Validate required config ---
+echo "[startup-debug] ADMIN_PASSWORD: ${ADMIN_PASSWORD:0:5}..."
+echo "[startup-debug] HTTP_PORT: ${HTTP_PORT}"
+echo "[startup-debug] DOMAIN: ${DOMAIN}"
+echo "[startup-debug] DB_HOST: ${DB_HOST}"
+echo "[startup-debug] DB_PORT: ${DB_PORT}"
+echo "[startup-debug] DB_PASSWORD: ${DB_PASSWORD:0:5}..."
+echo "[startup-debug] REDIS_CACHE: ${REDIS_CACHE}"
+echo "[startup-debug] REDIS_QUEUE: ${REDIS_QUEUE}"
+echo "[startup-debug] REDIS_SOCKETIO: ${REDIS_SOCKETIO}"
+
 if [[ -z "$DB_HOST" || -z "$DB_PASSWORD" || -z "$REDIS_CACHE" || -z "$REDIS_QUEUE" || -z "$REDIS_SOCKETIO" ]]; then
   echo "[startup][ERROR] Missing required metadata: DB_HOST, DB_PASSWORD, REDIS_CACHE, REDIS_QUEUE, REDIS_SOCKETIO must be set." >&2
   exit 1
