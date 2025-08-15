@@ -23,9 +23,17 @@ export BACKEND=${BACKEND:-127.0.0.1:8000}
 export SOCKETIO=${SOCKETIO:-127.0.0.1:9000}
 
 # Database configuration - handle both DB_* and MARIADB_* variable names
+# Debug MARIADB variables
+echo "[DEBUG] MARIADB_HOST value: '${MARIADB_HOST:-not set}'"
+echo "[DEBUG] MARIADB_PORT value: '${MARIADB_PORT:-not set}'"
+echo "[DEBUG] MARIADB_ROOT_PASSWORD value: '${MARIADB_ROOT_PASSWORD:-not set}'"
+
 export DB_HOST=${DB_HOST:-${MARIADB_HOST:-}}
 export DB_PORT=${DB_PORT:-${MARIADB_PORT:-3306}}
 export DB_PASSWORD=${DB_PASSWORD:-${MARIADB_ROOT_PASSWORD:-}}
+
+echo "[DEBUG] Final DB_HOST: '$DB_HOST'"
+echo "[DEBUG] Final DB_PORT: '$DB_PORT'"
 
 # Redis configuration
 export REDIS_CACHE_URL=${REDIS_CACHE_URL:-}
@@ -64,36 +72,32 @@ echo "  - Redis Cache: $REDIS_CACHE"
 echo "  - Redis Queue: $REDIS_QUEUE"
 echo "  - Site Name Header: $FRAPPE_SITE_NAME_HEADER"
 
-# Railway volume handling - use the mounted volume path directly
-# Railway mounts volume at a dynamic path, use environment or detect
-VOLUME_PATH="/home/frappe/frappe-bench/persistent"
+# Railway volume handling - detect and use the actual mounted volume
+echo "[INFO] Detecting Railway volume mount..."
 
-# If the expected path doesn't exist, find the actual Railway volume mount
-if [[ ! -d "$VOLUME_PATH" ]]; then
-    # Look for Railway volume mount patterns
-    for possible_path in /var/lib/containers/railwayapp/bind-mounts/*/vol_*; do
-        if [[ -d "$possible_path" && -w "$possible_path" ]]; then
-            VOLUME_PATH="$possible_path"
-            echo "[INFO] Found Railway volume at: $VOLUME_PATH"
-            break
-        fi
-    done
+# Railway automatically mounts volumes, find the actual mount point
+VOLUME_PATH=""
+for possible_path in /var/lib/containers/railwayapp/bind-mounts/*/vol_*; do
+    if [[ -d "$possible_path" ]]; then
+        VOLUME_PATH="$possible_path"
+        echo "[INFO] Found Railway volume at: $VOLUME_PATH"
+        break
+    fi
+done
+
+# If no volume found, create temporary directories
+if [[ -z "$VOLUME_PATH" ]]; then
+    echo "[WARNING] No Railway volume detected, using temporary storage"
+    VOLUME_PATH="/tmp/frappe_data"
+    mkdir -p "$VOLUME_PATH"
 fi
 
-# Ensure we have write permissions and create directory structure
 echo "[INFO] Using volume path: $VOLUME_PATH"
-echo "[INFO] Volume permissions: $(ls -la "$(dirname "$VOLUME_PATH")" 2>/dev/null || echo 'Cannot access parent dir')"
+echo "[INFO] Volume permissions: $(ls -la "$VOLUME_PATH" 2>/dev/null || echo 'Cannot access volume')"
 
-# Create directory structure in the volume with proper error handling
-if mkdir -p "$VOLUME_PATH/sites" "$VOLUME_PATH/logs" 2>/dev/null; then
-    echo "[INFO] Successfully created directories in volume"
-else
-    echo "[ERROR] Failed to create directories in volume. Trying alternative approach..."
-    # Fallback: create in /tmp and link if volume creation fails
-    mkdir -p /tmp/frappe_sites /tmp/frappe_logs
-    VOLUME_PATH="/tmp"
-    echo "[WARNING] Using temporary storage - data will not persist across deployments"
-fi
+# Create directory structure in the actual volume
+echo "[INFO] Creating directory structure..."
+mkdir -p "$VOLUME_PATH/sites" "$VOLUME_PATH/logs"
 
 # Create symbolic links to maintain expected paths
 if [[ ! -L sites ]]; then
