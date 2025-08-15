@@ -32,11 +32,13 @@ echo "[DEBUG] MARIADB_ROOT_PASSWORD value: '${MARIADB_ROOT_PASSWORD:-not set}'"
 export DB_HOST=${DB_HOST:-${MARIADB_HOST:-}}
 export DB_PORT=${DB_PORT:-${MARIADB_PORT:-3306}}
 export DB_PASSWORD=${DB_PASSWORD:-${MARIADB_PASSWORD:-${MARIADB_ROOT_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}}}
+export DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-${MARIADB_ROOT_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}}
 
 echo "[DEBUG] Final DB_HOST: '$DB_HOST'"
 echo "[DEBUG] Final DB_PORT: '$DB_PORT'"
 echo "[DEBUG] Requested DB_USER: '${DB_USER:-root}'"
 echo "[DEBUG] Requested DB_NAME: '${DB_NAME:-${MYSQL_DATABASE:-$(echo "$SITE_NAME" | sed 's/\./_/g' | sed 's/-/_/g')}}'"
+echo "[DEBUG] DB_ROOT_PASSWORD provided: $([[ -n "$DB_ROOT_PASSWORD" ]] && echo yes || echo no)"
 
 # Redis configuration
 export REDIS_CACHE_URL=${REDIS_CACHE_URL:-}
@@ -214,7 +216,7 @@ if [[ ! -d "sites/$SITE_NAME" ]]; then
         --mariadb-user-host-login-scope='%' \
         --admin-password="${BOOTSTRAP_ADMIN_PASSWORD:-admin}" \
         --db-root-username=root \
-        --db-root-password="$DB_PASSWORD" \
+        --db-root-password="$DB_ROOT_PASSWORD" \
         --install-app erpnext \
         --set-default \
         "$SITE_NAME" 2>/dev/null; then
