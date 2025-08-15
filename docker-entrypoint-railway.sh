@@ -220,32 +220,37 @@ if [[ ! -d "sites/$SITE_NAME" ]]; then
         --db-name "${DB_NAME:-${MYSQL_DATABASE:-$(echo "$SITE_NAME" | sed 's/\./_/g' | sed 's/-/_/g')}}" \
         --install-app erpnext \
         --set-default \
-        "$SITE_NAME" 2>/dev/null; then
-        echo "[INFO] New site created successfully"
+        "$SITE_NAME"; then
+        echo "[INFO] New site created successfully."
+        # A new site is created, so we run migrations.
+        bench --site "$SITE_NAME" migrate
     else
-        echo "[INFO] Site creation failed (likely database exists), connecting to existing database..."
-        # Create site directory structure to connect to existing database
+        echo "[INFO] 'bench new-site' failed. This is expected if the database already exists."
+        echo "[INFO] Creating site configuration to connect to the existing database..."
+
+        # Create site directory if it doesn't exist
         mkdir -p "sites/$SITE_NAME"
-        
-        # Create site config to connect to existing database
-        # Respect optional DB_NAME/DB_USER env vars; default to sanitized site name and root user
+
+        # Create site_config.json to connect to the existing database
         cat > "sites/$SITE_NAME/site_config.json" << EOF
 {
- "db_host": "${DB_HOST}",
- "db_port": ${DB_PORT},
- "db_name": "${DB_NAME:-${MYSQL_DATABASE:-$(echo "$SITE_NAME" | sed 's/\./_/g' | sed 's/-/_/g')}}",
- "db_user": "${DB_USER:-root}",
- "db_password": "${DB_PASSWORD}",
- "encryption_key": "$(openssl rand -base64 32)"
+    "db_host": "${DB_HOST}",
+    "db_port": ${DB_PORT},
+    "db_name": "${DB_NAME:-${MYSQL_DATABASE:-$(echo "$SITE_NAME" | sed 's/\./_/g' | sed 's/-/_/g')}}",
+    "db_user": "${DB_USER:-root}",
+    "db_password": "${DB_PASSWORD}",
+    "encryption_key": "$(openssl rand -base64 32)"
 }
 EOF
-        
-        # Set site as default
-        bench use "$SITE_NAME" || true
 
-        # If database exists but is empty, ensure base schema is installed
-        echo "[INFO] Ensuring ERPNext is installed on existing database (will create tables if missing)..."
-        bench --site "$SITE_NAME" install-app erpnext || true
+        # Set the site as the default
+        bench use "$SITE_NAME"
+
+        echo "[INFO] Running migrations for existing site..."
+        bench --site "$SITE_NAME" migrate
+
+        echo "[INFO] Ensuring ERPNext app is installed..."
+        bench --site "$SITE_NAME" install-app erpnext
     fi
     
     echo "[INFO] Site setup completed: $SITE_NAME"
