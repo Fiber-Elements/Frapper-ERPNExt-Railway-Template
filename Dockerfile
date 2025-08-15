@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y \
     jq \
     && rm -rf /var/lib/apt/lists/*
 
+# Create frappe user and set home directory
+RUN useradd -ms /bin/bash frappe
+
 # Create supervisord configuration directory
 RUN mkdir -p /etc/supervisor/conf.d
 
@@ -24,10 +27,6 @@ RUN chmod +x /home/frappe/docker-entrypoint-railway.sh
 # The user will mount their Railway volume to this path.
 RUN mkdir -p /home/frappe/persistent && \
     chown -R frappe:frappe /home/frappe/persistent
-VOLUME /home/frappe/persistent
-
-# Create frappe user and set home directory
-RUN useradd -ms /bin/bash frappe
 
 ENV HOME /home/frappe
 WORKDIR $HOME
