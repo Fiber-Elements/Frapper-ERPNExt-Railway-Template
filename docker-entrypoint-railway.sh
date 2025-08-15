@@ -40,6 +40,23 @@ export REDIS_CACHE_URL=${REDIS_CACHE_URL:-}
 export REDIS_QUEUE_URL=${REDIS_QUEUE_URL:-}
 export REDIS_SOCKETIO_URL=${REDIS_SOCKETIO_URL:-$REDIS_CACHE_URL}
 
+# Fallbacks and validation to avoid invalid empty Redis config
+if [[ -z "$REDIS_QUEUE_URL" && -n "$REDIS_CACHE_URL" ]]; then
+    export REDIS_QUEUE_URL="$REDIS_CACHE_URL"
+fi
+if [[ -z "$REDIS_CACHE_URL" && -n "$REDIS_QUEUE_URL" ]]; then
+    export REDIS_CACHE_URL="$REDIS_QUEUE_URL"
+fi
+if [[ -z "$REDIS_SOCKETIO_URL" && -n "$REDIS_QUEUE_URL" ]]; then
+    export REDIS_SOCKETIO_URL="$REDIS_QUEUE_URL"
+fi
+
+# Require at least a queue Redis URL (others will default to it)
+if [[ -z "$REDIS_QUEUE_URL" ]]; then
+    echo "[ERROR] REDIS_QUEUE_URL is required but not set. Please set REDIS_QUEUE_URL (and optionally REDIS_CACHE_URL, REDIS_SOCKETIO_URL)."
+    exit 1
+fi
+
 # Parse Redis URLs to get host:port format for Frappe config
 if [[ -n "$REDIS_CACHE_URL" ]]; then
     # Handle both redis://host:port and redis://user:pass@host:port formats
@@ -63,6 +80,16 @@ if [[ -n "$REDIS_QUEUE_URL" ]]; then
     echo "[DEBUG] Parsed Redis queue: $REDIS_QUEUE from URL: $REDIS_QUEUE_URL"
 fi
 
+# Parse Socket.IO Redis as well
+if [[ -n "$REDIS_SOCKETIO_URL" ]]; then
+    REDIS_SOCKETIO=$(echo "$REDIS_SOCKETIO_URL" | sed -E 's|redis://([^@]*@)?([^/:]+)(:[0-9]+)?.*|\2\3|')
+    if [[ ! "$REDIS_SOCKETIO" =~ :[0-9]+$ ]]; then
+        REDIS_SOCKETIO="${REDIS_SOCKETIO}:6379"
+    fi
+    export REDIS_SOCKETIO
+    echo "[DEBUG] Parsed Redis socketio: $REDIS_SOCKETIO from URL: $REDIS_SOCKETIO_URL"
+fi
+
 echo "[INFO] Configuration:"
 echo "  - Frontend Port: $FRONTEND_PORT"
 echo "  - Backend Port: $BACKEND_PORT" 
@@ -70,6 +97,7 @@ echo "  - Socket.IO Port: $SOCKETIO_PORT"
 echo "  - Database Host: $DB_HOST:$DB_PORT"
 echo "  - Redis Cache: $REDIS_CACHE"
 echo "  - Redis Queue: $REDIS_QUEUE"
+echo "  - Redis SocketIO: $REDIS_SOCKETIO"
 echo "  - Site Name Header: $FRAPPE_SITE_NAME_HEADER"
 
 # --- Volume Configuration ---
@@ -137,7 +165,7 @@ if [[ ! -f "sites/common_site_config.json" ]]; then
  "db_port": ${DB_PORT},
  "redis_cache": "redis://${REDIS_CACHE}",
  "redis_queue": "redis://${REDIS_QUEUE}",
- "redis_socketio": "redis://${REDIS_QUEUE}",
+ "redis_socketio": "redis://${REDIS_SOCKETIO}",
  "socketio_port": ${SOCKETIO_PORT}
 }
 EOF
@@ -155,7 +183,10 @@ else
 
     if [[ -n "$REDIS_QUEUE" ]]; then
         bench set-config -g redis_queue "redis://$REDIS_QUEUE"
-        bench set-config -g redis_socketio "redis://$REDIS_QUEUE"
+    fi
+
+    if [[ -n "$REDIS_SOCKETIO" ]]; then
+        bench set-config -g redis_socketio "redis://$REDIS_SOCKETIO"
     fi
 
     bench set-config -gp socketio_port "$SOCKETIO_PORT"
