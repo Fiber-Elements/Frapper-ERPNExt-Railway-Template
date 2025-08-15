@@ -201,8 +201,7 @@ if [[ ! -d "sites/$SITE_NAME" ]]; then
 }
 EOF
         
-        # Add site to current sites
-        echo "$SITE_NAME" > sites/currentsite.txt
+        # Set site as default
         bench use "$SITE_NAME" || true
     fi
     
@@ -235,35 +234,9 @@ echo "[INFO] Starting all services with supervisord..."
 
 # Start supervisord with all services
 if [[ "$1" == "supervisord" ]]; then
-    # Start services in sequence using supervisorctl after supervisord starts
-    exec supervisord -n -c /etc/supervisor/conf.d/supervisord.conf &
-    SUPERVISORD_PID=$!
-    
-    # Wait for supervisord to start
-    sleep 5
-    
-    # Start services in proper order
-    echo "[INFO] Starting backend service..."
-    supervisorctl start backend
-    sleep 10
-    
-    echo "[INFO] Starting websocket service..."
-    supervisorctl start websocket
-    sleep 5
-    
-    echo "[INFO] Starting frontend service..."
-    supervisorctl start frontend
-    sleep 5
-    
-    echo "[INFO] Starting background services..."
-    supervisorctl start scheduler
-    supervisorctl start queue-short
-    supervisorctl start queue-long
-    
-    echo "[INFO] All services started successfully!"
-    
-    # Wait for supervisord to finish
-    wait $SUPERVISORD_PID
+    echo "[INFO] Starting supervisord..."
+    # Start supervisord in foreground mode
+    exec supervisord -n -c /etc/supervisor/conf.d/supervisord.conf
 else
     # Execute the provided command
     exec "$@"
