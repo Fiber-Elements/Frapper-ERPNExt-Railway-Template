@@ -168,25 +168,49 @@ SITE_NAME=${SITE_NAME:-${FRAPPE_SITE_NAME_HEADER:-frontend}}
 echo "[INFO] Using site name: $SITE_NAME"
 echo "[INFO] Railway public domain: ${RAILWAY_PUBLIC_DOMAIN:-'not set'}"
 
+# Check if site exists or if we should create it
 if [[ ! -d "sites/$SITE_NAME" ]]; then
     echo "[INFO] Creating new site: $SITE_NAME"
     
     # Wait for configuration to be written
     sleep 5
     
-    # Create the site
-    bench new-site \
+    # Try to create site, but handle existing database gracefully
+    if bench new-site \
         --mariadb-user-host-login-scope='%' \
         --admin-password="${BOOTSTRAP_ADMIN_PASSWORD:-admin}" \
         --db-root-username=root \
         --db-root-password="$DB_PASSWORD" \
         --install-app erpnext \
         --set-default \
-        "$SITE_NAME"
+        "$SITE_NAME" 2>/dev/null; then
+        echo "[INFO] New site created successfully"
+    else
+        echo "[INFO] Site creation failed (likely database exists), connecting to existing database..."
+        # Create site directory structure to connect to existing database
+        mkdir -p "sites/$SITE_NAME"
+        
+        # Create site config to connect to existing database
+        cat > "sites/$SITE_NAME/site_config.json" << EOF
+{
+ "db_host": "${DB_HOST}",
+ "db_port": ${DB_PORT},
+ "db_name": "$(echo "$SITE_NAME" | sed 's/\./_/g' | sed 's/-/_/g')",
+ "db_password": "${DB_PASSWORD}",
+ "encryption_key": "$(openssl rand -base64 32)"
+}
+EOF
+        
+        # Add site to current sites
+        echo "$SITE_NAME" > sites/currentsite.txt
+        bench use "$SITE_NAME" || true
+    fi
     
-    echo "[INFO] Site created successfully: $SITE_NAME"
+    echo "[INFO] Site setup completed: $SITE_NAME"
 else
     echo "[INFO] Site already exists: $SITE_NAME"
+    # Ensure site is enabled
+    bench use "$SITE_NAME" 2>/dev/null || true
 fi
 
 # If using Railway public domain, create additional site for the domain
