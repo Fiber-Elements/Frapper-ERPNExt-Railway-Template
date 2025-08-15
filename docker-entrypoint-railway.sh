@@ -10,7 +10,15 @@ export BACKEND_PORT=8000
 export SOCKETIO_PORT=9000
 
 # Ensure required environment variables
-export FRAPPE_SITE_NAME_HEADER=${FRAPPE_SITE_NAME_HEADER:-frontend}
+# Use Railway public domain if available, fallback to project name or default
+export RAILWAY_PUBLIC_DOMAIN=${RAILWAY_PUBLIC_DOMAIN:-}
+if [[ -n "$RAILWAY_PUBLIC_DOMAIN" ]]; then
+    export FRAPPE_SITE_NAME_HEADER="$$host"
+    export SITE_NAME="$RAILWAY_PUBLIC_DOMAIN"
+else
+    export FRAPPE_SITE_NAME_HEADER=${FRAPPE_SITE_NAME_HEADER:-${RAILWAY_PROJECT_NAME:-frontend}}
+    export SITE_NAME=${FRAPPE_SITE_NAME_HEADER}
+fi
 export BACKEND=${BACKEND:-127.0.0.1:8000}
 export SOCKETIO=${SOCKETIO:-127.0.0.1:9000}
 
@@ -145,7 +153,10 @@ fi
 bench set-config -gp socketio_port "$SOCKETIO_PORT"
 
 # Check if site exists, create if not
-SITE_NAME=${FRAPPE_SITE_NAME_HEADER:-frontend}
+SITE_NAME=${SITE_NAME:-${FRAPPE_SITE_NAME_HEADER:-frontend}}
+echo "[INFO] Using site name: $SITE_NAME"
+echo "[INFO] Railway public domain: ${RAILWAY_PUBLIC_DOMAIN:-'not set'}"
+
 if [[ ! -d "sites/$SITE_NAME" ]]; then
     echo "[INFO] Creating new site: $SITE_NAME"
     
@@ -165,6 +176,21 @@ if [[ ! -d "sites/$SITE_NAME" ]]; then
     echo "[INFO] Site created successfully: $SITE_NAME"
 else
     echo "[INFO] Site already exists: $SITE_NAME"
+fi
+
+# If using Railway public domain, create additional site for the domain
+if [[ -n "$RAILWAY_PUBLIC_DOMAIN" && "$RAILWAY_PUBLIC_DOMAIN" != "$SITE_NAME" ]]; then
+    echo "[INFO] Creating additional site for Railway domain: $RAILWAY_PUBLIC_DOMAIN"
+    if [[ ! -d "sites/$RAILWAY_PUBLIC_DOMAIN" ]]; then
+        bench new-site \
+            --mariadb-user-host-login-scope='%' \
+            --admin-password="${BOOTSTRAP_ADMIN_PASSWORD:-admin}" \
+            --db-root-username=root \
+            --db-root-password="$DB_PASSWORD" \
+            --install-app erpnext \
+            "$RAILWAY_PUBLIC_DOMAIN"
+        echo "[INFO] Railway domain site created: $RAILWAY_PUBLIC_DOMAIN"
+    fi
 fi
 
 # Configure environment for Railway HTTP exposure
