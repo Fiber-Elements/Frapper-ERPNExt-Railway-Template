@@ -39,6 +39,8 @@
 - `RAILWAY_SERVICE_NAME` - Service name
 - `RAILWAY_PROJECT_NAME` - Project name
 - `RAILWAY_REPLICA_ID` - Replica identifier
+- `RAILWAY_PUBLIC_DOMAIN` - Public domain for your service (e.g., `your-app-name.up.railway.app`)
+- `RAILWAY_PRIVATE_DOMAIN` - Private internal domain
 
 ## Setup Instructions
 
