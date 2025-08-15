@@ -217,6 +217,7 @@ if [[ ! -d "sites/$SITE_NAME" ]]; then
         --admin-password="${BOOTSTRAP_ADMIN_PASSWORD:-admin}" \
         --db-root-username=root \
         --db-root-password="$DB_ROOT_PASSWORD" \
+        --db-name "${DB_NAME:-${MYSQL_DATABASE:-$(echo "$SITE_NAME" | sed 's/\./_/g' | sed 's/-/_/g')}}" \
         --install-app erpnext \
         --set-default \
         "$SITE_NAME" 2>/dev/null; then
@@ -296,6 +297,7 @@ if [[ -n "$RAILWAY_PUBLIC_DOMAIN" && "$RAILWAY_PUBLIC_DOMAIN" != "$SITE_NAME" ]]
             --admin-password="${BOOTSTRAP_ADMIN_PASSWORD:-admin}" \
             --db-root-username=root \
             --db-root-password="$DB_ROOT_PASSWORD" \
+            --db-name "${DB_NAME:-${MYSQL_DATABASE:-$(echo "$RAILWAY_PUBLIC_DOMAIN" | sed 's/\./_/g' | sed 's/-/_/g')}}" \
             --install-app erpnext \
             "$RAILWAY_PUBLIC_DOMAIN"
         echo "[INFO] Railway domain site created: $RAILWAY_PUBLIC_DOMAIN"
