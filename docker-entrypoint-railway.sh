@@ -135,26 +135,44 @@ if [[ -n "$REDIS_QUEUE" ]]; then
     }
 fi
 
-# Configure Frappe
-echo "[INFO] Configuring Frappe..."
+# Initialize Frappe sites directory structure
+echo "[INFO] Initializing Frappe sites directory..."
 ls -1 apps > sites/apps.txt 2>/dev/null || echo "erpnext" > sites/apps.txt
 
-# Set bench configuration
-if [[ -n "$DB_HOST" ]]; then
-    bench set-config -g db_host "$DB_HOST"
-    bench set-config -gp db_port "$DB_PORT"
+# Create basic common_site_config.json if it doesn't exist
+if [[ ! -f "sites/common_site_config.json" ]]; then
+    echo "[INFO] Creating initial common_site_config.json..."
+    cat > sites/common_site_config.json << EOF
+{
+ "db_host": "${DB_HOST}",
+ "db_port": ${DB_PORT},
+ "redis_cache": "redis://${REDIS_CACHE}",
+ "redis_queue": "redis://${REDIS_QUEUE}",
+ "redis_socketio": "redis://${REDIS_QUEUE}",
+ "socketio_port": ${SOCKETIO_PORT}
+}
+EOF
+else
+    echo "[INFO] Updating existing common_site_config.json..."
+    # Update existing configuration
+    if [[ -n "$DB_HOST" ]]; then
+        bench set-config -g db_host "$DB_HOST"
+        bench set-config -gp db_port "$DB_PORT"
+    fi
+
+    if [[ -n "$REDIS_CACHE" ]]; then
+        bench set-config -g redis_cache "redis://$REDIS_CACHE"
+    fi
+
+    if [[ -n "$REDIS_QUEUE" ]]; then
+        bench set-config -g redis_queue "redis://$REDIS_QUEUE"
+        bench set-config -g redis_socketio "redis://$REDIS_QUEUE"
+    fi
+
+    bench set-config -gp socketio_port "$SOCKETIO_PORT"
 fi
 
-if [[ -n "$REDIS_CACHE" ]]; then
-    bench set-config -g redis_cache "redis://$REDIS_CACHE"
-fi
-
-if [[ -n "$REDIS_QUEUE" ]]; then
-    bench set-config -g redis_queue "redis://$REDIS_QUEUE"
-    bench set-config -g redis_socketio "redis://$REDIS_QUEUE"
-fi
-
-bench set-config -gp socketio_port "$SOCKETIO_PORT"
+echo "[INFO] Frappe configuration completed."
 
 # Check if site exists, create if not
 SITE_NAME=${SITE_NAME:-${FRAPPE_SITE_NAME_HEADER:-frontend}}
