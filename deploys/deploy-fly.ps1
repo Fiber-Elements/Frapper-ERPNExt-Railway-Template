@@ -59,9 +59,9 @@ try {
     # Update fly.toml with app name
     Write-Info "Updating fly.toml with app name: $AppName"
     $flyConfig = Get-Content $FlyTomlPath -Raw
-    $flyConfig = $flyConfig -replace 'app = "erpnext-app"', "app = `"$AppName`""
-    $flyConfig = $flyConfig -replace 'FRAPPE_SITE_NAME_HEADER = "erpnext-app.fly.dev"', "FRAPPE_SITE_NAME_HEADER = `"$AppName.fly.dev`""
-    $flyConfig = $flyConfig -replace 'BOOTSTRAP_SITE = "erpnext-app.fly.dev"', "BOOTSTRAP_SITE = `"$AppName.fly.dev`""
+    # Replace any app = "..." with the provided app name
+    $flyConfig = $flyConfig -replace 'app\s*=\s*"[^"]+"', "app = `"$AppName`""
+    # Do not alter FRAPPE_SITE_NAME_HEADER or BOOTSTRAP_SITE; we keep "frontend" per official defaults
     Set-Content -Path $FlyTomlPath -Value $flyConfig -Encoding UTF8
 
     # Change to repo root for fly commands
@@ -99,7 +99,12 @@ try {
 
         # Attach database to app
         Write-Info "Attaching database to app..."
-        & flyctl postgres attach $dbName --app $AppName
+        try {
+            & flyctl postgres attach $dbName --app $AppName
+            Write-Success "Database attached to app"
+        } catch {
+            Write-Info "Database may already be attached, continuing..."
+        }
 
         # Create Redis instances
         Write-Info "Creating Redis cache instance..."
