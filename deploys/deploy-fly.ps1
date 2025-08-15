@@ -24,6 +24,75 @@ function New-RandomPassword([int]$length = 20) {
     -join ((1..$length) | ForEach-Object { $arr[(Get-Random -Minimum 0 -Maximum $arr.Length)] })
 }
 
+function Get-Redis-Url($redisName) {
+    $maxRetries = 15
+    $retryDelaySeconds = 10 # Total wait time up to 150 seconds
+    for ($i = 0; $i -lt $maxRetries; $i++) {
+        Write-Info "Attempting to get Redis URL for '$redisName' (Attempt $($i+1)/$maxRetries)..."
+        try {
+            $status = & flyctl redis status $redisName 2>$null
+            $endpointMatch = $status | Select-String 'Endpoint\s+(.+)'
+            $passwordMatch = $status | Select-String 'Password\s+(.+)'
+
+            if ($endpointMatch -and $passwordMatch) {
+                $endpoint = $endpointMatch.Matches[0].Groups[1].Value.Trim()
+                $password = $passwordMatch.Matches[0].Groups[1].Value.Trim()
+                $url = "redis://:$($password)@$($endpoint)"
+                Write-Success "Found Redis URL for '$redisName'"
+                return $url
+            }
+        } catch {
+            # Ignore errors and retry
+        }
+        Write-Info "Redis details not available yet. Waiting ${retryDelaySeconds}s..."
+        Start-Sleep -Seconds $retryDelaySeconds
+    }
+    throw "Could not retrieve Redis URL for '$redisName' after $maxRetries attempts."
+}
+
+function Deploy-MariaDB($AppName, $Region) {
+    $dbAppName = "$AppName-db"
+    Write-Info "Deploying MariaDB app: $dbAppName"
+
+    try {
+        & flyctl apps create $dbAppName --org personal 2>$null
+        Write-Success "MariaDB app created: $dbAppName"
+    } catch {
+        Write-Info "MariaDB app might already exist, continuing..."
+    }
+
+    try {
+        & flyctl volumes create mariadb_data --app $dbAppName --region $Region --size 10 -y
+        Write-Success "MariaDB volume created."
+    } catch {
+        Write-Info "MariaDB volume might already exist, continuing..."
+    }
+
+    $dbRootPassword = New-RandomPassword 20
+    Write-Info "Setting MariaDB root password secret..."
+    & flyctl secrets set --app $dbAppName "MARIADB_ROOT_PASSWORD=$dbRootPassword"
+
+    # Update the mariadb.toml with the correct app name and region
+    $mariaTomlPath = Join-Path $PSScriptRoot 'mariadb.toml'
+    if (-not (Test-Path $mariaTomlPath)) {
+        throw "mariadb.toml not found at $mariaTomlPath"
+    }
+    $mariaConfig = Get-Content $mariaTomlPath -Raw
+    $mariaConfig = "app = `"$dbAppName`"`nprimary_region = `"$Region`"`n`n" + $mariaConfig
+    $tempMariaTomlPath = Join-Path $env:TEMP "fly-mariadb-temp.toml"
+    Set-Content -Path $tempMariaTomlPath -Value $mariaConfig -Encoding UTF8
+
+    Write-Info "Deploying MariaDB container..."
+    try {
+        & flyctl deploy --app $dbAppName --config $tempMariaTomlPath --ha=false
+        Write-Success "MariaDB deployed successfully."
+    } finally {
+        Remove-Item $tempMariaTomlPath -ErrorAction SilentlyContinue
+    }
+
+    return @{ Host = "$dbAppName.internal"; Port = 3306; Password = $dbRootPassword }
+}
+
 try {
     Write-Info "Starting ERPNext deployment to Fly.io..."
     
@@ -59,9 +128,7 @@ try {
     # Update fly.toml with app name
     Write-Info "Updating fly.toml with app name: $AppName"
     $flyConfig = Get-Content $FlyTomlPath -Raw
-    # Replace any app = "..." with the provided app name
     $flyConfig = $flyConfig -replace 'app\s*=\s*"[^"]+"', "app = `"$AppName`""
-    # Do not alter FRAPPE_SITE_NAME_HEADER or BOOTSTRAP_SITE; we keep "frontend" per official defaults
     Set-Content -Path $FlyTomlPath -Value $flyConfig -Encoding UTF8
 
     # Change to repo root for fly commands
@@ -78,7 +145,7 @@ try {
             & flyctl auth login
         }
 
-        # Create the app (if it doesn't exist)
+        # Create the ERPNext app (if it doesn't exist)
         Write-Info "Creating Fly.io app: $AppName"
         try {
             & flyctl apps create $AppName --org personal 2>$null
@@ -87,88 +154,48 @@ try {
             Write-Info "App might already exist, continuing..."
         }
 
-        # Create PostgreSQL database
-        Write-Info "Creating PostgreSQL database..."
-        $dbName = "$AppName-db"
-        try {
-            & flyctl postgres create --name $dbName --region $Region --initial-cluster-size 1 --vm-size shared-cpu-1x --volume-size 10 --org personal
-            Write-Success "PostgreSQL database created: $dbName"
-        } catch {
-            Write-Info "Database might already exist, continuing..."
-        }
+        # Deploy MariaDB
+        $dbInfo = Deploy-MariaDB -AppName $AppName -Region $Region
 
-        # Attach database to app
-        Write-Info "Attaching database to app..."
-        try {
-            & flyctl postgres attach $dbName --app $AppName
-            Write-Success "Database attached to app"
-        } catch {
-            Write-Info "Database may already be attached, continuing..."
-        }
-
-        # Create Redis instances
-        Write-Info "Creating Redis cache instance..."
+        # Check for and create Redis instances if they don't exist
+        Write-Info "Checking for existing Redis instances..."
+        $redisList = & flyctl redis list
         $redisCacheName = "$AppName-redis-cache"
-        try {
+        $redisQueueName = "$AppName-redis-queue"
+
+        if ($redisList -like "*$redisCacheName*") {
+            Write-Info "Redis cache '$redisCacheName' already exists, skipping creation."
+        } else {
+            Write-Info "Creating Redis cache instance..."
             & flyctl redis create --name $redisCacheName --region $Region --org personal
             Write-Success "Redis cache created: $redisCacheName"
-        } catch {
-            Write-Info "Redis cache might already exist, continuing..."
         }
 
-        Write-Info "Creating Redis queue instance..."
-        $redisQueueName = "$AppName-redis-queue"
-        try {
+        if ($redisList -like "*$redisQueueName*") {
+            Write-Info "Redis queue '$redisQueueName' already exists, skipping creation."
+        } else {
+            Write-Info "Creating Redis queue instance..."
             & flyctl redis create --name $redisQueueName --region $Region --org personal
             Write-Success "Redis queue created: $redisQueueName"
-        } catch {
-            Write-Info "Redis queue might already exist, continuing..."
         }
 
-        # Get Redis URLs and set as secrets
-        Write-Info "Configuring Redis connections..."
-        # Get Redis URLs from status output (parsing text output instead of JSON)
-        try {
-            $redisCacheStatus = & flyctl redis status $redisCacheName 2>$null
-            $redisQueueStatus = & flyctl redis status $redisQueueName 2>$null
-            
-            # Extract private URLs from status output
-            $redisCacheUrl = ($redisCacheStatus | Select-String "Private URL:\s*(.+)" | ForEach-Object { $_.Matches[0].Groups[1].Value })
-            $redisQueueUrl = ($redisQueueStatus | Select-String "Private URL:\s*(.+)" | ForEach-Object { $_.Matches[0].Groups[1].Value })
-            
-            if ($redisCacheUrl) { $redisCacheUrl = $redisCacheUrl.Trim() }
-            if ($redisQueueUrl) { $redisQueueUrl = $redisQueueUrl.Trim() }
-            
-            # Validate URLs were extracted
-            if (-not $redisCacheUrl -or -not $redisQueueUrl) {
-                Write-Warn "Could not extract Redis URLs from status output. Using fallback method..."
-                # Fallback: construct URLs manually
-                $redisCacheUrl = "redis://$redisCacheName.flycast:6379"
-                $redisQueueUrl = "redis://$redisQueueName.flycast:6379"
-            }
-            
-            Write-Info "Redis Cache URL: $redisCacheUrl"
-            Write-Info "Redis Queue URL: $redisQueueUrl"
-        } catch {
-            Write-Warn "Error getting Redis status: $($_.Exception.Message)"
-            Write-Info "Using fallback Redis URLs..."
-            $redisCacheUrl = "redis://$redisCacheName.flycast:6379"
-            $redisQueueUrl = "redis://$redisQueueName.flycast:6379"
-        }
+        # Get Redis URLs
+        $redisCacheUrl = Get-Redis-Url -redisName $redisCacheName
+        $redisQueueUrl = Get-Redis-Url -redisName $redisQueueName
 
         # Set application secrets
         Write-Info "Setting application secrets..."
-        & flyctl secrets set --app $AppName "BOOTSTRAP_ADMIN_PASSWORD=$AdminPassword"
-        
-        if ($redisCacheUrl -and $redisQueueUrl) {
-            & flyctl secrets set --app $AppName "REDIS_CACHE_URL=$redisCacheUrl"
-            & flyctl secrets set --app $AppName "REDIS_QUEUE_URL=$redisQueueUrl"
-            & flyctl secrets set --app $AppName "REDIS_SOCKETIO_URL=$redisCacheUrl"
-            Write-Success "Redis connection secrets set successfully"
-        } else {
-            Write-Warn "Redis URLs not available, skipping Redis secret configuration"
-            Write-Info "You may need to manually configure Redis connections after deployment"
-        }
+        $secrets = @(
+            "DB_HOST=$($dbInfo.Host)",
+            "DB_PORT=$($dbInfo.Port)",
+            "DB_PASSWORD=$($dbInfo.Password)",
+            "REDIS_CACHE_URL=$redisCacheUrl",
+            "REDIS_QUEUE_URL=$redisQueueUrl",
+            "REDIS_SOCKETIO_URL=$redisCacheUrl",
+            "BOOTSTRAP_ADMIN_PASSWORD=$AdminPassword"
+        )
+        & flyctl secrets set --app $AppName $secrets
+        Write-Success "Application secrets configured."
 
         # Create volume for persistent storage
         Write-Info "Creating volume for site files..."
@@ -183,10 +210,6 @@ try {
         Write-Info "Deploying ERPNext application..."
         & flyctl deploy --app $AppName --wait-timeout 900
 
-        # Wait for deployment to be ready
-        Write-Info "Waiting for application to be ready..."
-        Start-Sleep 30
-
         # Get app URL
         $appUrl = "https://$AppName.fly.dev"
         
@@ -197,7 +220,7 @@ try {
         Write-Host "Username:         Administrator" -ForegroundColor Green
         Write-Host "Password:         $AdminPassword" -ForegroundColor Green
         Write-Host "" 
-        Write-Host "Database:         $dbName" -ForegroundColor Cyan
+        Write-Host "Database App:     $($AppName)-db" -ForegroundColor Cyan
         Write-Host "Redis Cache:      $redisCacheName" -ForegroundColor Cyan
         Write-Host "Redis Queue:      $redisQueueName" -ForegroundColor Cyan
         Write-Host "==========================================" -ForegroundColor Yellow

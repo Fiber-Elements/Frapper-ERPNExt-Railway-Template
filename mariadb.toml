@@ -1,0 +1,15 @@
+# fly.toml file for the MariaDB database app
+
+[build]
+  image = "mariadb:10.6"
+
+[[services]]
+  internal_port = 3306
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 3306
+
+[mounts]
+  source="mariadb_data"
+  destination="/var/lib/mysql"
