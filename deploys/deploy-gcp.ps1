@@ -6,10 +6,10 @@ param (
     [string]$ProjectId,
 
     [Parameter(Mandatory = $false)]
-    [string]$Region = 'us-central1',
+    [string]$Region = 'europe-west1',
 
     [Parameter(Mandatory = $false)]
-    [string]$Zone = 'us-central1-a',
+    [string]$Zone = "$($Region)-b",
 
     [Parameter(Mandatory = $false)]
     [string]$InstanceBaseName = "erpnext-$(Get-Random -Minimum 1000 -Maximum 9999)",
@@ -62,13 +62,14 @@ if (-not $peering) {
 
 # --- Provision Cloud SQL (MariaDB) ---
 Write-Host "Provisioning Cloud SQL for MariaDB instance '$SqlInstanceName'... (This may take 10-15 minutes)"
-& gcloud sql instances create $SqlInstanceName --database-version=MARIADB_10_11 --tier=$SqlTier --region=$Region --root-password=$DbRootPassword --network=default --no-assign-ip
+# For MariaDB compatibility, Cloud SQL uses MYSQL_8_0 as the database version flag.
+& gcloud sql instances create $SqlInstanceName --database-version=MYSQL_8_0 --tier=$SqlTier --region=$Region --root-password=$DbRootPassword --network=default --no-assign-ip
 $SqlIpAddress = (& gcloud sql instances describe $SqlInstanceName --format="value(ipAddresses.privateIpAddress)")
 Write-Host "Cloud SQL instance created with private IP: $SqlIpAddress"
 
 # --- Provision Memorystore (Redis) ---
 Write-Host "Provisioning Memorystore for Redis instance '$RedisInstanceName'... (This may take 5-10 minutes)"
-& gcloud redis instances create $RedisInstanceName --size=$RedisSizeGb --region=$Region --tier=$RedisTier --redis-version=REDIS_7_2 --network=default
+& gcloud redis instances create $RedisInstanceName --size=$RedisSizeGb --region=$Region --tier=$RedisTier --redis-version=redis_7_2 --network=default
 $RedisIpAddress = (& gcloud redis instances describe $RedisInstanceName --region=$Region --format="value(host)")
 Write-Host "Memorystore instance created with host: $RedisIpAddress"
 
@@ -89,7 +90,6 @@ if (-not (Test-Path $StartupScriptPath)) {
 
 Write-Host "Creating Compute Engine VM '$VmName'..."
 $Metadata = @(
-    "startup-script-url=https://raw.githubusercontent.com/frappe/frappe_docker/main/docs/gce-startup-script.sh", # A placeholder, we use startup-script file
     "ADMIN_PASSWORD=$AdminPassword",
     "DB_HOST=$SqlIpAddress",
     "DB_PORT=3306",
