@@ -31,10 +31,12 @@ echo "[DEBUG] MARIADB_ROOT_PASSWORD value: '${MARIADB_ROOT_PASSWORD:-not set}'"
 
 export DB_HOST=${DB_HOST:-${MARIADB_HOST:-}}
 export DB_PORT=${DB_PORT:-${MARIADB_PORT:-3306}}
-export DB_PASSWORD=${DB_PASSWORD:-${MARIADB_ROOT_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}}
+export DB_PASSWORD=${DB_PASSWORD:-${MARIADB_PASSWORD:-${MARIADB_ROOT_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}}}
 
 echo "[DEBUG] Final DB_HOST: '$DB_HOST'"
 echo "[DEBUG] Final DB_PORT: '$DB_PORT'"
+echo "[DEBUG] Requested DB_USER: '${DB_USER:-root}'"
+echo "[DEBUG] Requested DB_NAME: '${DB_NAME:-${MYSQL_DATABASE:-$(echo "$SITE_NAME" | sed 's/\./_/g' | sed 's/-/_/g')}}'"
 
 # Redis configuration
 export REDIS_CACHE_URL=${REDIS_CACHE_URL:-}
