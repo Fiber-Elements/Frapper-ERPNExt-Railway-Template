@@ -1,10 +1,56 @@
-# ERPNext Local Quick Start (Docker)
+# ERPNext Multi-Platform Deployment
 
-This repository lets you spin up a complete Frappe/ERPNext stack locally on Windows with a single PowerShell script. It uses the official `frappe_docker/pwd.yml` for an all‑in‑one setup.
+This repository provides automated deployment solutions for ERPNext across different platforms. Each deployment automatically provisions databases, Redis instances, and connects them to your ERPNext installation.
 
-## Deployment
+## 🚀 Deployment Options
 
-### Local Quick Start (Docker)
+### 1. Fly.io (Cloud - Recommended)
+
+Deploy ERPNext to Fly.io with managed PostgreSQL and Redis services.
+
+**Features:**
+- Automatic PostgreSQL database provisioning
+- Managed Redis cache and queue instances  
+- Global CDN and load balancing
+- Automatic SSL certificates
+- Built-in monitoring and logging
+
+**Requirements:**
+- Fly.io CLI: https://fly.io/docs/hands-on/install-flyctl/
+- Fly.io account (free tier available)
+
+**Quick Start:**
+```powershell
+# Deploy with automatic app name prompt
+./deploys/deploy-fly.ps1
+
+# Deploy with custom app name and password
+./deploys/deploy-fly.ps1 -AppName "my-erpnext" -AdminPassword "secure123"
+```
+
+### 2. Dokploy (Self-Hosted with UI)
+
+Self-hosted deployment with web-based management interface.
+
+**Features:**
+- One-click deployment via web UI
+- Automatic MariaDB database setup
+- Dedicated Redis cache and queue instances
+- Automatic SSL with Let's Encrypt
+- Built-in backup scheduling
+
+**Requirements:**
+- VPS/server running Ubuntu 24.04+
+- Dokploy installed on your server
+- Optional: Domain name for custom URL
+
+**Quick Start:**
+```powershell
+# Generate deployment files for your server
+./deploys/deploy-dokploy.ps1 -ServerIP "your-server-ip" -DomainName "your-domain.com"
+```
+
+### 3. Local Docker (Development)
 
 This repository lets you spin up a complete Frappe/ERPNext stack locally on Windows with a single PowerShell script. It uses the official `frappe_docker/pwd.yml` for an all‑in‑one setup.
 
@@ -14,45 +60,39 @@ This repository lets you spin up a complete Frappe/ERPNext stack locally on Wind
 - Redis (cache and queue)
 - Scheduler and workers
 
-## Prerequisites
+**Features:**
+- Complete local development environment
+- MariaDB 10.6 with health checks
+- Redis cache and queue instances
+- All ERPNext services orchestrated
+- Port management and conflict resolution
+
+**Requirements:**
 - Windows with PowerShell 5.1+
-- Docker Desktop (with the Docker Compose plugin)
-- Git (for first‑time automatic clone of `frappe_docker/`)
+- Docker Desktop (with Docker Compose plugin)
+- Git (for automatic clone of `frappe_docker/`)
 
-## Quick Start
-1) Open PowerShell in the repo root
-2) Run:
-
+**Quick Start:**
 ```powershell
+# Run locally on port 8080
 ./deploys/run-local.ps1
-```
 
-The script will:
-- Ensure `frappe_docker/` exists (clone if missing, pull if it is a git repo).
-- Pull required container images.
-- Start core services: MariaDB, Redis (cache/queue).
-- Wait for MariaDB to become healthy.
-- Run one‑off configurator to write `sites/common_site_config.json`.
-- Run one‑off site creation to install ERPNext on the default site `frontend`.
-- Start application services (backend, websocket, frontend, scheduler, workers).
-- Wait for readiness at `/api/method/ping` and set the Administrator password.
-- Print the URL and credentials; optionally open your browser.
+# Use specific port and custom password
+./deploys/run-local.ps1 -Port 9000 -AdminPassword "dev123"
 
-Default URL: `http://localhost:8080`
-Default username: `Administrator`
-Password: generated and printed by the script (or use `-AdminPassword`)
-
-## Script options
-```powershell
-# Use a specific port (default 8080)
-./deploys/run-local.ps1 -Port 8090
-
-# Provide your own admin password (must be 8–64 chars, A‑Z a‑z 0‑9 _ -)
-./deploys/run-local.ps1 -AdminPassword "YourStrong_Password-123"
-
-# Do not auto-open the browser when done
+# Don't auto-open browser
 ./deploys/run-local.ps1 -OpenBrowser:$false
 ```
+
+## 📊 Platform Comparison
+
+| Platform | Cost | Setup Time | Management | Scalability | Best For |
+|----------|------|------------|------------|-------------|----------|
+| **Fly.io** | Free tier + usage | 5 minutes | Managed | Auto-scaling | Production, Global |
+| **Dokploy** | VPS cost only | 10 minutes | Self-managed UI | Manual scaling | Self-hosted Production |
+| **Local** | Free | 2 minutes | Manual | Single instance | Development |
+
+## 🔧 Local Development Details
 
 ## Data persistence
 Data is stored in Docker named volumes defined by `frappe_docker/pwd.yml`:

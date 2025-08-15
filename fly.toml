@@ -1,0 +1,86 @@
+app = "erpnext-fibers"
+primary_region = "fra"
+kill_signal = "SIGINT"
+kill_timeout = "15s"
+
+[build]
+image = "frappe/erpnext:v15.27.0"
+
+[env]
+FRAPPE_SITE_NAME_HEADER = "erpnext-fibers.fly.dev"
+SOCKETIO_PORT = "3000"
+AUTO_BOOTSTRAP = "1"
+BOOTSTRAP_SITE = "erpnext-fibers.fly.dev"
+
+# Database configuration (will be set by deployment script)
+# DB_HOST = "erpnext-db.internal"
+# DB_PORT = "5432"
+# DATABASE_URL will be injected by Fly.io
+
+# Redis configuration (will be set by deployment script)  
+# REDIS_CACHE_URL will be injected by Fly.io
+# REDIS_QUEUE_URL will be injected by Fly.io
+
+[mounts]
+source = "frappe_sites"
+destination = "/home/frappe/frappe-bench/sites"
+initial_size = "5gb"
+
+[[vm]]
+memory = "2gb"
+cpu_kind = "shared"
+cpus = 2
+
+[[processes]]
+name = "frontend"
+cmd = ["nginx", "-g", "daemon off;"]
+
+[[processes]]
+name = "backend"
+cmd = ["python", "-m", "gunicorn", "--bind", "0.0.0.0:8000", "--threads", "4", "--timeout", "120", "frappe.app:application", "--preload"]
+
+[[processes]]
+name = "websocket"
+cmd = ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
+
+[[processes]]
+name = "scheduler"
+cmd = ["python", "-m", "frappe.utils.bench", "schedule"]
+
+[[processes]]
+name = "queue-short"
+cmd = ["python", "-m", "frappe.utils.bench", "worker", "--queue", "short"]
+
+[[processes]]
+name = "queue-long"
+cmd = ["python", "-m", "frappe.utils.bench", "worker", "--queue", "long"]
+
+[[services]]
+processes = ["frontend"]
+internal_port = 8080
+protocol = "tcp"
+auto_stop_machines = true
+auto_start_machines = true
+min_machines_running = 0
+
+[[services.ports]]
+handlers = ["http"]
+port = 80
+
+[[services.ports]]
+handlers = ["tls", "http"]
+port = 443
+
+[[services.http_checks]]
+path = "/api/method/ping"
+interval = "15s"
+grace_period = "10s"
+timeout = "10s"
+method = "get"
+
+[deploy]
+strategy = "rolling"
+
+
+
+
