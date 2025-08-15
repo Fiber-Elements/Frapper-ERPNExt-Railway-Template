@@ -8,8 +8,20 @@
 set -xeuo pipefail
 
 # -------- Config via metadata / env --------
+# Helper function to get metadata with retry logic
 get_md() {
-  curl -fs -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1" || true
+    local key=$1
+    local value
+    for i in {1..12}; do
+        value=$(curl -fs -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$key")
+        if [[ -n "$value" ]]; then
+            echo "$value"
+            return
+        fi
+        echo "[startup-warn] Metadata '$key' not found, retrying in 5s... ($i/12)" >&2
+        sleep 5
+    done
+    echo ""
 }
 
 ADMIN_PASSWORD="$(get_md ADMIN_PASSWORD)"

@@ -27,7 +27,13 @@ param (
     [string]$RedisTier = 'BASIC', # BASIC or STANDARD_HA
 
     [Parameter(Mandatory = $false)]
-    [string]$RedisSizeGb = '1'
+    [string]$RedisSizeGb = '1',
+
+    [Parameter(Mandatory = $false)]
+    [string]$Domain,
+
+    [Parameter(Mandatory = $false)]
+    [string]$HttpPort
 )
 
 # Set project config
@@ -63,10 +69,12 @@ if (-not $peering) {
 # --- Provision Cloud SQL (MariaDB) ---
 Write-Host "Provisioning Cloud SQL for MariaDB instance '$SqlInstanceName'... (This may take 10-15 minutes)"
 # For MariaDB compatibility, Cloud SQL uses MYSQL_8_0 as the database version flag.
-& gcloud sql instances create $SqlInstanceName --database-version=MYSQL_8_0 --tier=$SqlTier --region=$Region --root-password=$DbRootPassword --network=default --no-assign-ip
+& gcloud sql instances create $SqlInstanceName --database-version=MYSQL_8_0 --tier=$SqlTier --region=$Region --root-password=$DbRootPassword --network=default --no-assign-ip --async
 # Wait for instance to be RUNNABLE
 Write-Host "Waiting for Cloud SQL instance to be ready..."
-while ($true) {
+$timeout = (New-TimeSpan -Minutes 20)
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+while ($stopwatch.Elapsed -lt $timeout) {
     $status = (& gcloud sql instances describe $SqlInstanceName --format="value(state)")
     if ($status -eq 'RUNNABLE') {
         Write-Host "Cloud SQL instance is RUNNABLE."
@@ -79,15 +87,21 @@ while ($true) {
     Write-Host "Current status: $status. Waiting 30 seconds..."
     Start-Sleep -Seconds 30
 }
-$SqlIpAddress = (& gcloud sql instances describe $SqlInstanceName --format="value(ipAddresses.privateIpAddress)")
+if ($stopwatch.Elapsed -ge $timeout) {
+    Write-Error "Timeout waiting for Cloud SQL instance to become RUNNABLE."
+    exit 1
+}
+$SqlIpAddress = (& gcloud sql instances describe $SqlInstanceName --format="value(ipAddresses[0].ipAddress)")
 Write-Host "Cloud SQL instance created with private IP: $SqlIpAddress"
 
 # --- Provision Memorystore (Redis) ---
 Write-Host "Provisioning Memorystore for Redis instance '$RedisInstanceName'... (This may take 5-10 minutes)"
-& gcloud redis instances create $RedisInstanceName --size=$RedisSizeGb --region=$Region --tier=$RedisTier --redis-version=redis_7_2 --network=default
+& gcloud redis instances create $RedisInstanceName --size=$RedisSizeGb --region=$Region --tier=$RedisTier --redis-version=redis_7_2 --network=default --async
 # Wait for Redis instance to be READY
 Write-Host "Waiting for Memorystore instance to be ready..."
-while ($true) {
+$timeout = (New-TimeSpan -Minutes 15)
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+while ($stopwatch.Elapsed -lt $timeout) {
     $status = (& gcloud redis instances describe $RedisInstanceName --region=$Region --format="value(state)")
     if ($status -eq 'READY') {
         Write-Host "Memorystore instance is READY."
@@ -99,6 +113,10 @@ while ($true) {
     }
     Write-Host "Current status: $status. Waiting 15 seconds..."
     Start-Sleep -Seconds 15
+}
+if ($stopwatch.Elapsed -ge $timeout) {
+    Write-Error "Timeout waiting for Memorystore instance to become READY."
+    exit 1
 }
 $RedisIpAddress = (& gcloud redis instances describe $RedisInstanceName --region=$Region --format="value(host)")
 Write-Host "Memorystore instance created with host: $RedisIpAddress"
@@ -119,15 +137,13 @@ if (-not (Test-Path $StartupScriptPath)) {
 }
 
 Write-Host "Creating Compute Engine VM '$VmName'..."
-$Metadata = @(
-    "ADMIN_PASSWORD=$AdminPassword",
-    "DB_HOST=$SqlIpAddress",
-    "DB_PORT=3306",
-    "DB_PASSWORD=$DbRootPassword",
-    "REDIS_CACHE=redis://$($RedisIpAddress):6379/0",
-    "REDIS_QUEUE=redis://$($RedisIpAddress):6379/1",
-    "REDIS_SOCKETIO=redis://$($RedisIpAddress):6379/2"
-)
+$metadataString = "DB_HOST=$SqlIpAddress,DB_PASSWORD=$DbRootPassword,REDIS_CACHE=redis://$RedisIpAddress:6379/0,REDIS_QUEUE=redis://$RedisIpAddress:6379/1,REDIS_SOCKETIO=redis://$RedisIpAddress:6379/2,ADMIN_PASSWORD=$AdminPassword"
+if ($Domain) {
+    $metadataString += ",DOMAIN=$Domain"
+}
+if ($HttpPort) {
+    $metadataString += ",HTTP_PORT=$HttpPort"
+}
 
 & gcloud compute instances create $VmName `
     --zone=$Zone `
@@ -137,7 +153,7 @@ $Metadata = @(
     --boot-disk-size=$BootDiskSize `
     --tags=http-server `
     --metadata-from-file=startup-script=$StartupScriptPath `
-    --metadata=$($Metadata -join ',')
+    --metadata="$metadataString"
 
 # --- Output Summary ---
 $VmExternalIp = (& gcloud compute instances describe $VmName --zone=$Zone --format="value(networkInterfaces[0].accessConfigs[0].natIP)")
