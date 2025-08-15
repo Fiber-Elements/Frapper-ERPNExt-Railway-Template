@@ -39,7 +39,19 @@ In your application's service settings on Railway, go to the **Variables** tab a
 
 Our Docker entrypoint script is designed to read these variables and configure Frappe accordingly.
 
-## 4. Deployment
+## 4. Deployment Configuration (`railway.toml`)
+
+This repository includes a `railway.toml` file to define the deployment configuration as code. This makes the deployment process more reliable and reproducible.
+
+The configuration specifies:
+
+-   **Builder**: Uses the `Dockerfile` in the repository root.
+-   **Restart Policy**: Automatically restarts the service if it fails.
+-   **Health Check**: Pings a Frappe endpoint (`/api/method/frappe.utils.ping`) to verify the application is healthy before marking the deployment as successful.
+
+No changes are needed for this file to work, but you can learn more in the [official Railway documentation](https://docs.railway.com/reference/config-as-code).
+
+## 5. Triggering a Deployment
 
 With the services and environment variables configured, you can trigger a deployment.
 
