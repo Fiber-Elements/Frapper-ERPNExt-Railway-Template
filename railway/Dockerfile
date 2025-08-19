@@ -5,11 +5,15 @@ FROM docker.io/frappe/erpnext:${VERSION}
 
 USER root
 
-# Install supervisor and wait-for-it (if not present)
+# Install supervisor and essential runtime deps (nginx, node) and create dirs
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends supervisor ca-certificates curl \
+    && apt-get install -y --no-install-recommends supervisor ca-certificates curl nginx nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /var/log/supervisor /etc/supervisor/conf.d
+
+# Ensure gunicorn available (some images may not ship with the CLI on PATH)
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir gunicorn
 
 # Copy supervisor config and helper scripts
 COPY supervisord.conf /etc/supervisor/supervisord.conf
@@ -32,9 +36,12 @@ ENV BACKEND=127.0.0.1:8000 \
     PROXY_READ_TIMEOUT=120 \
     CLIENT_MAX_BODY_SIZE=50m
 
+# Ensure sbin paths are available for non-root user processes (nginx lives in /usr/sbin)
+ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 # Ensure sites dir exists (mounted volume should bind here at runtime)
 RUN mkdir -p /home/frappe/frappe-bench/sites \
  && chown -R frappe:frappe /home/frappe/frappe-bench
 
-# Run all processes under supervisord
-CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
+# Runtime entrypoint will fix volume ownership and generate apps.txt, then start supervisord
+ENTRYPOINT ["/opt/frappe-scripts/entrypoint.sh"]
