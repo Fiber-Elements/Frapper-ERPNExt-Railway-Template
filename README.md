@@ -1,168 +1,250 @@
-# ERPNext Multi-Platform Deployment
+# ERPNext on Railway Template
 
-This repository provides automated deployment solutions for ERPNext across different platforms. Each deployment automatically provisions databases, Redis instances, and connects them to your ERPNext installation.
+This repository provides a minimal template to run ERPNext locally via Docker (using the official `frappe_docker` single-compose setup) and guidance to deploy it on Railway with MariaDB and Redis provisioned as Railway services.
 
-## 🚀 Deployment Options
+Key files:
+- `deploys/run-local.ps1`: Windows PowerShell script that automates a local ERPNext bring-up using `frappe_docker/pwd.yml`.
+- `.env.template`: Example environment variables for overriding defaults.
+- `.gitignore`: Ignores local and generated files, including the cloned `frappe_docker/` sources.
 
-### 1. Fly.io (Cloud - Recommended)
+References:
+- Frappe single-compose docs: https://github.com/frappe/frappe_docker/blob/main/docs/single-compose-setup.md
+- ERPNext repo: https://github.com/frappe/erpnext
 
-Deploy ERPNext to Fly.io with managed PostgreSQL and Redis services.
+---
 
-**Features:**
-- Automatic PostgreSQL database provisioning
-- Managed Redis cache and queue instances  
-- Global CDN and load balancing
-- Automatic SSL certificates
-- Built-in monitoring and logging
+## Local Development (Windows + Docker Desktop)
 
-**Requirements:**
-- Fly.io CLI: https://fly.io/docs/hands-on/install-flyctl/
-- Fly.io account (free tier available)
+Prerequisites:
+- Docker Desktop installed and running.
+- PowerShell 5.1+.
+- Git (optional but recommended; the script will clone `frappe_docker`).
 
-**Quick Start:**
+Quick start:
+1) Open PowerShell in the repo root.
+2) Run the script (it will clone/update `frappe_docker`, pull images, configure, create a default site, and start services):
+
 ```powershell
-# Deploy with automatic app name prompt
-./deploys/deploy-fly.ps1
+# Optional: specify port and admin password. If omitted, a strong safe password will be generated.
+# Default HTTP port: 8080
 
-# Deploy with custom app name and password
-./deploys/deploy-fly.ps1 -AppName "my-erpnext" -AdminPassword "secure123"
+./deploys/run-local.ps1 -Port 8080 -AdminPassword "Your_Admin_Pass_123"
 ```
 
-### 2. Dokploy (Self-Hosted with UI)
+What the script does:
+- Clones or updates `frappe_docker` into `./frappe_docker/`.
+- Uses `frappe_docker/pwd.yml` with a temporary override to ensure startup order and port mapping.
+- Starts core deps: `db` (MariaDB 10.6), `redis-cache`, `redis-queue`.
+- Runs one-off jobs:
+  - `configurator` to populate `sites/common_site_config.json` with DB/Redis hosts.
+  - `create-site` to create default site `frontend` and install ERPNext.
+- Starts app services: `backend`, `websocket`, `frontend`, `scheduler`, `queue-short`, `queue-long`.
+- Waits for `/api/method/ping` to respond and sets the Administrator password on site `frontend`.
 
-Self-hosted deployment with web-based management interface.
+Result:
+- URL: `http://localhost:<Port>`
+- Username: `Administrator`
+- Password: as displayed on completion (or the value passed to `-AdminPassword`).
 
-**Features:**
-- One-click deployment via web UI
-- Automatic MariaDB database setup
-- Dedicated Redis cache and queue instances
-- Automatic SSL with Let's Encrypt
-- Built-in backup scheduling
+Optional local overrides:
+- Copy `.env.template` to `.env` and populate variables if you want to override DB/Redis hosts, proxy timeouts, etc. This is not required for the default local flow.
 
-**Requirements:**
-- VPS/server running Ubuntu 24.04+
-- Dokploy installed on your server
-- Optional: Domain name for custom URL
+Cleanup:
+- To stop services:
+  - Open the same PowerShell and run:
+    ```powershell
+    docker compose -f ./frappe_docker/pwd.yml down
+    ```
+- To reset data (DESTRUCTIVE): remove the Docker volumes created by the compose file.
 
-**Quick Start:**
-```powershell
-# Generate deployment files for your server
-./deploys/deploy-dokploy.ps1 -ServerIP "your-server-ip" -DomainName "your-domain.com"
+---
+
+## Service Topology (Reference)
+
+The standard single-compose topology from `pwd.yml` includes:
+- App containers:
+  - `backend`: Gunicorn backend (Frappe/ERPNext).
+  - `frontend`: Nginx serving static assets and reverse proxying `backend` and `websocket`.
+  - `websocket`: Socket.IO for realtime.
+  - `scheduler`: Background scheduler.
+  - `queue-short`: Worker for `short` and `default` queues.
+  - `queue-long`: Worker for `long` queue.
+- One-off jobs:
+  - `configurator`: Writes DB/Redis settings to `sites/common_site_config.json`.
+  - `create-site`: Creates the default site and installs ERPNext.
+- Dependencies:
+  - `db`: MariaDB 10.6 with Frappe defaults.
+  - `redis-cache`: Redis for cache.
+  - `redis-queue`: Redis for RQ queues and pub/sub.
+- Shared data:
+  - `sites` volume (must be available to all app containers).
+
+Use this topology as the basis for any deployment target (including Railway).
+
+---
+
+## Deploying on Railway
+
+Goal: Run app containers on Railway and provision MariaDB and Redis as Railway services. Ensure all app containers share the same `sites` data and have consistent config.
+
+Important considerations:
+- All app containers need the same bench data at `/home/frappe/frappe-bench/sites`.
+- You must run the configuration and site-creation steps once before starting the runtime services.
+- Your public HTTP endpoint should be served by the `frontend` (nginx) container on port 8080.
+
+### 1) Provision base services on Railway
+
+Create the following Railway services:
+
+- Database (MariaDB 10.6). If Railway does not offer a managed MariaDB, create a service from the Docker image `mariadb:10.6` with a persistent volume and set:
+  - `MYSQL_ROOT_PASSWORD` (and/or `MARIADB_ROOT_PASSWORD`) to a strong secret.
+  - Expose port `3306` internally.
+
+- Redis (for queues). Use Railway Redis or a Docker image `redis:6.2-alpine` with a persistent volume. Expose port `6379` internally.
+
+- Redis (for cache). You can either:
+  - Use a second Redis service for cache, or
+  - Use one Redis and separate DB indices; the official setup uses separate containers. For parity with `pwd.yml`, create a second Redis service for cache.
+
+Record connection info:
+- `DB_HOST`, `DB_PORT` (3306), and the root password you set.
+- `REDIS_QUEUE` host:port.
+- `REDIS_CACHE` host:port.
+
+### 2) Create application services on Railway
+
+For each app container create a Railway service using the official image:
+- Image: `docker.io/frappe/erpnext:version-15` (or set via env `IMAGE_NAME` + `VERSION`).
+- Attach the same persistent volume at mount path `/home/frappe/frappe-bench/sites` to all app services. If your platform cannot share a single volume across services, consider running a single service with a process manager that starts multiple processes; otherwise data will diverge.
+
+Define the following app services and start commands:
+- `frontend` (public):
+  - Start command: `nginx-entrypoint.sh`
+  - Expose HTTP port: `8080` (Railway will proxy this as the public URL)
+- `backend`:
+  - Default image entrypoint (Gunicorn backend). No command override needed.
+- `websocket`:
+  - Start command: `node /home/frappe/frappe-bench/apps/frappe/socketio.js`
+- `scheduler`:
+  - Start command: `bench schedule`
+- `queue-short`:
+  - Start command: `bench worker --queue short,default`
+- `queue-long`:
+  - Start command: `bench worker --queue long`
+
+Environment variables for all app services:
+- Database/Redis wiring (point to Railway services):
+  - `DB_HOST=<your-mariadb-host>`
+  - `DB_PORT=3306`
+  - `REDIS_CACHE=<your-redis-cache-host>:6379`
+  - `REDIS_QUEUE=<your-redis-queue-host>:6379`
+- Optional: site routing
+  - `FRAPPE_SITE_NAME_HEADER=<your-default-site>`
+  - Alternatively leave it unset to default to `$$host` (then the site name must match the incoming Host header).
+
+Expose port only on `frontend` and set any proxy-related variables as needed (see `.env.template`).
+
+### 3) One-time configuration and site creation on Railway
+
+Before starting the runtime app services the first time, run the following as one-off tasks (temporary services using the same image and volume):
+
+- Configurator (writes `common_site_config.json`):
+
+```bash
+# Entry command for a temporary service (same image and volume mounted at /home/frappe/frappe-bench/sites)
+# Requires DB_HOST/PORT, REDIS_CACHE, REDIS_QUEUE in env
+bash -lc '
+  bench set-config -g db_host "$DB_HOST";
+  bench set-config -gp db_port "$DB_PORT";
+  bench set-config -g redis_cache "redis://$REDIS_CACHE";
+  bench set-config -g redis_queue "redis://$REDIS_QUEUE";
+  bench set-config -g redis_socketio "redis://$REDIS_QUEUE";
+  bench set-config -gp socketio_port 9000;
+'
 ```
 
-### 3. Local Docker (Development)
+- Create site (choose your site name; for simplicity set `FRAPPE_SITE_NAME_HEADER` to the same value):
 
-This repository lets you spin up a complete Frappe/ERPNext stack locally on Windows with a single PowerShell script. It uses the official `frappe_docker/pwd.yml` for an all‑in‑one setup.
+Required env for this job:
+- `SITE_NAME=<your-site-name>` (e.g., `myerp`) or set it to your Railway domain if using `$$host` behavior.
+- `ADMIN_PASSWORD=<strong-admin-password>` (ERPNext Administrator password).
+- `DB_HOST`, `DB_PORT`, and DB root credentials for your MariaDB service:
+  - `DB_ROOT_PASSWORD=<your-mariadb-root-password>`
 
-- Backend (Frappe/ERPNext)
-- Frontend (Nginx)
-- MariaDB 10.6
-- Redis (cache and queue)
-- Scheduler and workers
-
-**Features:**
-- Complete local development environment
-- MariaDB 10.6 with health checks
-- Redis cache and queue instances
-- All ERPNext services orchestrated
-- Port management and conflict resolution
-
-**Requirements:**
-- Windows with PowerShell 5.1+
-- Docker Desktop (with Docker Compose plugin)
-- Git (for automatic clone of `frappe_docker/`)
-
-**Quick Start:**
-```powershell
-# Run locally on port 8080
-./deploys/run-local.ps1
-
-# Use specific port and custom password
-./deploys/run-local.ps1 -Port 9000 -AdminPassword "dev123"
-
-# Don't auto-open browser
-./deploys/run-local.ps1 -OpenBrowser:$false
+Command:
+```bash
+bash -lc '
+  wait-for-it -t 120 "$DB_HOST:$DB_PORT";
+  bench new-site --mariadb-user-host-login-scope="%%" \
+    --admin-password="$ADMIN_PASSWORD" \
+    --db-root-username=root \
+    --db-root-password="$DB_ROOT_PASSWORD" \
+    "$SITE_NAME";
+  # Install ERPNext
+  bench --site "$SITE_NAME" install-app erpnext;
+'
 ```
 
-## 📊 Platform Comparison
+- (Optional) Set or reset Administrator password later:
+```bash
+bash -lc 'bench --site "$SITE_NAME" set-admin-password "$ADMIN_PASSWORD"'
+```
 
-| Platform | Cost | Setup Time | Management | Scalability | Best For |
-|----------|------|------------|------------|-------------|----------|
-| **Fly.io** | Free tier + usage | 5 minutes | Managed | Auto-scaling | Production, Global |
-| **Dokploy** | VPS cost only | 10 minutes | Self-managed UI | Manual scaling | Self-hosted Production |
-| **Local** | Free | 2 minutes | Manual | Single instance | Development |
+After these jobs succeed, start the app services listed in step 2.
 
-## 🔧 Local Development Details
+### 4) First access
 
-## Data persistence
-Data is stored in Docker named volumes defined by `frappe_docker/pwd.yml`:
-- `db-data`: MariaDB data
-- `redis-queue-data`: Redis queue data
-- `sites`: Frappe sites (configs, files, backups)
-- `logs`: consolidated logs
+- Point your browser to the Railway public URL of the `frontend` service.
+- If you set `FRAPPE_SITE_NAME_HEADER` to your site name, nginx will always serve that site regardless of Host header.
+- If you rely on `$$host`, ensure your site name in `bench new-site` matches the actual Railway domain.
 
-These volumes persist across container restarts. Deleting them will erase data.
+### 5) Upgrades and migrations
+
+For app upgrades or app table migrations, run a one-off migration job that mirrors the compose `migration` job:
+
+```bash
+bash -lc '
+  bench --site all set-config -p maintenance_mode 1;
+  bench --site all set-config -p pause_scheduler 1;
+  bench --site all migrate;
+  bench --site all set-config -p maintenance_mode 0;
+  bench --site all set-config -p pause_scheduler 0;
+'
+```
+
+---
+
+## Environment Variables Reference
+
+See `.env.template` for optional overrides. Common variables you will use on Railway:
+- `DB_HOST`, `DB_PORT`
+- `REDIS_CACHE`, `REDIS_QUEUE`
+- `FRAPPE_SITE_NAME_HEADER`
+- `ADMIN_PASSWORD` (for one-off create site)
+- `DB_ROOT_PASSWORD` (for one-off create site)
+- `SITE_NAME`
+
+Optional nginx tuning:
+- `PROXY_READ_TIMEOUT`, `CLIENT_MAX_BODY_SIZE`
+- `UPSTREAM_REAL_IP_ADDRESS`, `UPSTREAM_REAL_IP_HEADER`, `UPSTREAM_REAL_IP_RECURSIVE`
+
+---
 
 ## Troubleshooting
-- Check containers:
-  ```powershell
-  docker compose -f .\frappe_docker\pwd.yml ps
-  ```
-- View logs (examples):
-  ```powershell
-  docker compose -f .\frappe_docker\pwd.yml logs db
-  docker compose -f .\frappe_docker\pwd.yml logs configurator
-  docker compose -f .\frappe_docker\pwd.yml logs create-site
-  docker compose -f .\frappe_docker\pwd.yml logs backend
-  ```
-- If startup times out, the script prints recent logs automatically.
-- Warning: You may see a Compose warning about `version` being obsolete in `pwd.yml`. It’s harmless with Compose v2. If you want to silence it, remove the first line `version: "3"` from `frappe_docker/pwd.yml`.
 
-## Common actions
-- Stop services (keep data):
-  ```powershell
-  docker compose -f .\frappe_docker\pwd.yml down
-  ```
-- Remove everything including data (DANGER):
-  ```powershell
-  docker compose -f .\frappe_docker\pwd.yml down -v
-  ```
+- Health/Readiness:
+  - Ensure DB and both Redis services are reachable from app services.
+  - The `sites` directory must be shared and persistent across all app containers.
+- Wrong site served or 404:
+  - Check `FRAPPE_SITE_NAME_HEADER` and that the default site exists in `sites/`.
+- Access denied creating site:
+  - Verify MariaDB root credentials and that the user can create databases.
+- SocketIO or background jobs not running:
+  - Confirm `websocket`, `scheduler`, and `queue-*` services are up and logs are clean.
 
-## GCP Deployment (Compute Engine VM)
+---
 
-This option reproduces the local Docker Compose setup on a single GCE VM using `frappe_docker/pwd.yml` (MariaDB 10.6 + Redis + ERPNext).
+## Notes
 
-* __Prerequisites__
-  - Install Google Cloud SDK (`gcloud`) and authenticate.
-  - A GCP project with billing enabled.
-  - PowerShell (to run the helper script).
-
-* __Quick start__
-  ```powershell
-  gcloud auth login
-  gcloud config set project <PROJECT_ID>
-  ./deploys/deploy-gcp.ps1 -ProjectId <PROJECT_ID> -Name erpnext-1 -Zone europe-west1-b -HttpPort 80 -AdminPassword "YourStrong_Password-123"
-  ```
-
-  - The script enables required APIs, creates firewall rules, provisions an Ubuntu VM, and passes a startup script (`scripts/gcp-startup.sh`).
-  - First boot can take 10–20 minutes (image pulls, site creation). The script prints the public URL when available.
-
-* __If you didn’t pass an AdminPassword__
-  - A secure password is generated on the VM and printed in serial logs:
-  ```powershell
-  gcloud compute instances get-serial-port-output erpnext-1 --zone europe-west1-b --port 1
-  ```
-
-* __Fetch the external IP__ (if needed):
-  ```powershell
-  gcloud compute instances describe erpnext-1 --zone europe-west1-b --format="get(networkInterfaces[0].accessConfigs[0].natIP)"
-  ```
-
-* __Cleanup__
-  ```powershell
-  gcloud compute instances delete erpnext-1 --zone europe-west1-b
-  ```
-
-Notes:
-- This path keeps MariaDB 10.6 and Redis in containers, matching local behavior.
-- For production hardening, add HTTPS (reverse proxy/managed certs), backups, monitoring, and consider attaching a separate persistent disk for `sites/`.
+- This template intentionally does not commit `frappe_docker/` sources; the local script will clone them at runtime.
+- The official single-compose (`pwd.yml`) is the canonical reference for service layout. Adapt it faithfully when mapping to Railway or other platforms.
