@@ -1,50 +1,61 @@
-# Environment files
-.env
-.env.*
-!.env.template
-
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.egg-info/
-.eggs/
-.venv/
-venv/
-env/
-
-# Node / JS
-node_modules/
-npm-debug.log*
-yarn-error.log*
-
-# Editors / IDE
+# OS / Editor
+.DS_Store
+Thumbs.db
+desktop.ini
 .vscode/
 .idea/
 *.code-workspace
 
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
 
-# Logs / temp
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env & secrets
+.env
+.env.*.local
+*.env
+*.env.local
+secrets/
+*.secret
+*.pem
+*.key
+
+# Keep env templates tracked
+!.env.template
+!railway/.env.template
+
+# Logs & temp
 *.log
 logs/
-*.tmp
-*.temp
+tmp/
+temp/
 
-# Build artifacts
-build/
-dist/
-
-# Docker Compose overrides (optional local-only files)
-docker-compose.override.yml
-compose.override.yml
-
-# Frappe docker sources (cloned by script)
+# Docker / local clones
 frappe_docker/
+docker-compose.override.yml
+*.local.yml
 
-# Nested Git repos (if any are cloned locally)
-**/.git/
+# Bench/site artifacts (should live on volumes, not in repo)
+sites/
+private/
+public/
+assets/
+
+# Misc
+coverage/
+.coverage*
