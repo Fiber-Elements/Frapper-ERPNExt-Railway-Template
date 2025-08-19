@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /home/frappe/frappe-bench
+cd /home/frappe/frappe-bench/sites
 
 # Put all sites into maintenance and pause scheduler, run migrate, then revert
 bench --site all set-config -p maintenance_mode 1
