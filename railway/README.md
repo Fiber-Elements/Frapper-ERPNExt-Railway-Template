@@ -140,3 +140,4 @@ Nginx tuning (optional):
 
 - Ensure the persistent volume is mounted to `/home/frappe/frappe-bench/sites` before running one-off jobs.
 - If you prefer host-based site routing, leave `FRAPPE_SITE_NAME_HEADER` unset and create the site with the exact host as its name.
+
