@@ -83,6 +83,30 @@ Use this topology as the basis for any deployment target (including Railway).
 
 ---
 
+## Option A: Single-Service on Railway (Recommended)
+
+Run all ERPNext processes in one Railway service using `supervisord`.
+
+Quickstart:
+- Create managed services on Railway:
+  - MariaDB 10.6 → note `DB_HOST`, `DB_PORT=3306`, `DB_ROOT_PASSWORD`.
+  - Redis (queue) → `REDIS_QUEUE=<host>:6379`.
+  - Redis (cache) → `REDIS_CACHE=<host>:6379`.
+- Create ERPNext service from this repo:
+  - Build using `railway/Dockerfile`.
+  - Attach a persistent volume mounted at `/home/frappe/frappe-bench/sites`.
+  - Expose port `8080`.
+  - Set env: `DB_HOST`, `DB_PORT=3306`, `REDIS_QUEUE`, `REDIS_CACHE`, optional `FRAPPE_SITE_NAME_HEADER`.
+- One-time jobs (Command Override on same service):
+  - `/opt/frappe-scripts/configurator.sh`.
+  - `/opt/frappe-scripts/create-site.sh` with env `SITE_NAME`, `ADMIN_PASSWORD`, `DB_ROOT_PASSWORD`.
+  - Remove override to let supervisord run all processes.
+- Access the public Railway URL (port 8080). Healthcheck hits `/api/method/ping`.
+
+Full instructions: see `railway/README.md`.
+
+---
+
 ## Deploying on Railway
 
 Goal: Run app containers on Railway and provision MariaDB and Redis as Railway services. Ensure all app containers share the same `sites` data and have consistent config.
